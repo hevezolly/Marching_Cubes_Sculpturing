@@ -1,0 +1,14 @@
+workspace = { members = [ "core","macros"] }
+[package]
+name = "blob_editor_2"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+egui = "0.25.0"
+egui_glfw_gl = "0.13.1"
+glam = "0.25.0"
+macros = {path = "macros"}
+core = {path = "core"}

@@ -1,0 +1,298 @@
+#version 430 core
+
+layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+layout (r32f, binding = 0) uniform image3D scalarField;
+uniform vec3 origin_offset;
+uniform vec3 field_scale;
+uniform ivec3 num_boxes; // should not be more than dimenitions of scalarField - 2;
+uniform float surface_level;
+
+struct SamplePoint 
+{
+    vec3 position;
+    vec3 normal;
+    float sampleValue;
+};
+
+layout(std430, binding = 2) writeonly buffer outputLayout
+{
+    float outputTriangles[];
+};
+
+layout(std430, binding = 1) buffer writeIndexBuffer {
+    int writeIndex;
+};
+
+layout(std430, binding = 3) readonly buffer triTableBuffer 
+{
+    int triTable[256][16]; 
+};
+
+const int edgeTable[256]= int[256](
+0x0  , 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c,
+0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03, 0xe09, 0xf00,
+0x190, 0x99 , 0x393, 0x29a, 0x596, 0x49f, 0x795, 0x69c,
+0x99c, 0x895, 0xb9f, 0xa96, 0xd9a, 0xc93, 0xf99, 0xe90,
+0x230, 0x339, 0x33 , 0x13a, 0x636, 0x73f, 0x435, 0x53c,
+0xa3c, 0xb35, 0x83f, 0x936, 0xe3a, 0xf33, 0xc39, 0xd30,
+0x3a0, 0x2a9, 0x1a3, 0xaa , 0x7a6, 0x6af, 0x5a5, 0x4ac,
+0xbac, 0xaa5, 0x9af, 0x8a6, 0xfaa, 0xea3, 0xda9, 0xca0,
+0x460, 0x569, 0x663, 0x76a, 0x66 , 0x16f, 0x265, 0x36c,
+0xc6c, 0xd65, 0xe6f, 0xf66, 0x86a, 0x963, 0xa69, 0xb60,
+0x5f0, 0x4f9, 0x7f3, 0x6fa, 0x1f6, 0xff , 0x3f5, 0x2fc,
+0xdfc, 0xcf5, 0xfff, 0xef6, 0x9fa, 0x8f3, 0xbf9, 0xaf0,
+0x650, 0x759, 0x453, 0x55a, 0x256, 0x35f, 0x55 , 0x15c,
+0xe5c, 0xf55, 0xc5f, 0xd56, 0xa5a, 0xb53, 0x859, 0x950,
+0x7c0, 0x6c9, 0x5c3, 0x4ca, 0x3c6, 0x2cf, 0x1c5, 0xcc ,
+0xfcc, 0xec5, 0xdcf, 0xcc6, 0xbca, 0xac3, 0x9c9, 0x8c0,
+0x8c0, 0x9c9, 0xac3, 0xbca, 0xcc6, 0xdcf, 0xec5, 0xfcc,
+0xcc , 0x1c5, 0x2cf, 0x3c6, 0x4ca, 0x5c3, 0x6c9, 0x7c0,
+0x950, 0x859, 0xb53, 0xa5a, 0xd56, 0xc5f, 0xf55, 0xe5c,
+0x15c, 0x55 , 0x35f, 0x256, 0x55a, 0x453, 0x759, 0x650,
+0xaf0, 0xbf9, 0x8f3, 0x9fa, 0xef6, 0xfff, 0xcf5, 0xdfc,
+0x2fc, 0x3f5, 0xff , 0x1f6, 0x6fa, 0x7f3, 0x4f9, 0x5f0,
+0xb60, 0xa69, 0x963, 0x86a, 0xf66, 0xe6f, 0xd65, 0xc6c,
+0x36c, 0x265, 0x16f, 0x66 , 0x76a, 0x663, 0x569, 0x460,
+0xca0, 0xda9, 0xea3, 0xfaa, 0x8a6, 0x9af, 0xaa5, 0xbac,
+0x4ac, 0x5a5, 0x6af, 0x7a6, 0xaa , 0x1a3, 0x2a9, 0x3a0,
+0xd30, 0xc39, 0xf33, 0xe3a, 0x936, 0x83f, 0xb35, 0xa3c,
+0x53c, 0x435, 0x73f, 0x636, 0x13a, 0x33 , 0x339, 0x230,
+0xe90, 0xf99, 0xc93, 0xd9a, 0xa96, 0xb9f, 0x895, 0x99c,
+0x69c, 0x795, 0x49f, 0x596, 0x29a, 0x393, 0x99 , 0x190,
+0xf00, 0xe09, 0xd03, 0xc0a, 0xb06, 0xa0f, 0x905, 0x80c,
+0x70c, 0x605, 0x50f, 0x406, 0x30a, 0x203, 0x109, 0x0);
+
+
+SamplePoint LerpPoints(SamplePoint p1, SamplePoint p2, float t) 
+{
+    return SamplePoint(
+        mix(p1.position, p2.position, t), 
+        normalize(mix(p1.normal, p2.normal, t)),
+        mix(p1.sampleValue, p2.sampleValue, t));
+}
+
+SamplePoint VertexInterp(SamplePoint p1, SamplePoint p2) 
+{
+    if (abs(surface_level - p1.sampleValue) < 0.00001)
+        return p1;
+    if (abs(surface_level - p2.sampleValue) < 0.00001)
+        return p2;
+    if (abs(p1.sampleValue - p2.sampleValue) < 0.00001)
+        return p1;
+    float mu = (surface_level - p1.sampleValue) / (p2.sampleValue - p1.sampleValue);
+    return LerpPoints(p1, p2, mu);
+    // return LerpPoints(p1, p2, 0.5);
+}
+
+vec3 VertexPosition(ivec3 index) 
+{
+    return origin_offset + vec3(index.x, index.y, index.z) * field_scale;
+}
+
+vec3 Normal(float x_neg, float x_pos, float y_neg, float y_pos, float z_neg, float z_pos) 
+{
+    float dx = x_pos - x_neg;
+    float dy = y_pos - y_neg;
+    float dz = z_pos - z_neg;
+
+    return normalize(vec3(dx, dy, dz));
+}
+
+float SampleField(ivec3 index) {
+
+    index = clamp(index + ivec3(1, 1, 1), ivec3(0, 0, 0), num_boxes + ivec3(2, 2, 2));
+    return imageLoad(scalarField, index).r;
+}
+
+void main() {
+    ivec3 box_coord = ivec3(gl_GlobalInvocationID.xyz);
+    if (box_coord.x >= num_boxes.x || 
+        box_coord.y >= num_boxes.y || 
+        box_coord.z >= num_boxes.z)
+        return;
+
+
+    SamplePoint result_vertecies[12] = SamplePoint[](
+        SamplePoint(vec3(0., 0., 0.), vec3(0., 0., 0.), 0.),
+        SamplePoint(vec3(0., 0., 0.), vec3(0., 0., 0.), 0.),
+        SamplePoint(vec3(0., 0., 0.), vec3(0., 0., 0.), 0.),
+        SamplePoint(vec3(0., 0., 0.), vec3(0., 0., 0.), 0.),
+        SamplePoint(vec3(0., 0., 0.), vec3(0., 0., 0.), 0.),
+        SamplePoint(vec3(0., 0., 0.), vec3(0., 0., 0.), 0.),
+        SamplePoint(vec3(0., 0., 0.), vec3(0., 0., 0.), 0.),
+        SamplePoint(vec3(0., 0., 0.), vec3(0., 0., 0.), 0.),
+        SamplePoint(vec3(0., 0., 0.), vec3(0., 0., 0.), 0.),
+        SamplePoint(vec3(0., 0., 0.), vec3(0., 0., 0.), 0.),
+        SamplePoint(vec3(0., 0., 0.), vec3(0., 0., 0.), 0.),
+        SamplePoint(vec3(0., 0., 0.), vec3(0., 0., 0.), 0.)
+    );
+
+    ivec3 dx = ivec3(1, 0, 0);
+    ivec3 dy = ivec3(0, 1, 0);
+    ivec3 dz = ivec3(0, 0, 1);
+
+    ivec3 indecies[8] = ivec3[] (
+        box_coord + ivec3(0, 0, 1),
+        box_coord + ivec3(1, 0, 1),
+        box_coord + ivec3(1, 0, 0),
+        box_coord,
+        box_coord + ivec3(0, 1, 1),
+        box_coord + ivec3(1, 1, 1),
+        box_coord + ivec3(1, 1, 0),
+        box_coord + ivec3(0, 1, 0)
+    );
+
+    SamplePoint grid_sample_points[8];
+
+
+    for (int i = 0; i < 8; i++) 
+    {
+        grid_sample_points[i] = SamplePoint(
+            VertexPosition(indecies[i]), 
+            vec3(0., 0., 0.), 
+            SampleField(indecies[i])
+        );
+    }
+
+    
+
+    grid_sample_points[0].normal = Normal(
+        SampleField(indecies[0] - dx), grid_sample_points[1].sampleValue,
+        SampleField(indecies[0] - dy), grid_sample_points[4].sampleValue,
+        grid_sample_points[3].sampleValue, SampleField(indecies[0] + dz)
+    );
+
+    grid_sample_points[1].normal = Normal(
+        grid_sample_points[0].sampleValue, SampleField(indecies[1] + dx),
+        SampleField(indecies[1] - dy), grid_sample_points[5].sampleValue,
+        grid_sample_points[2].sampleValue, SampleField(indecies[1] + dz)
+    );
+
+    grid_sample_points[2].normal = Normal(
+        grid_sample_points[3].sampleValue, SampleField(indecies[2] + dx),
+        SampleField(indecies[2] - dy), grid_sample_points[6].sampleValue,
+        SampleField(indecies[2] - dz), grid_sample_points[1].sampleValue
+    );
+
+    grid_sample_points[3].normal = Normal(
+        SampleField(indecies[3] - dx), grid_sample_points[2].sampleValue,
+        SampleField(indecies[3] - dy), grid_sample_points[7].sampleValue,
+        SampleField(indecies[3] - dz), grid_sample_points[0].sampleValue
+    );
+
+
+    grid_sample_points[4].normal = Normal(
+        SampleField(indecies[4] - dx), grid_sample_points[5].sampleValue,
+        grid_sample_points[0].sampleValue, SampleField(indecies[4] + dy),
+        grid_sample_points[7].sampleValue, SampleField(indecies[4] + dz)
+    );
+
+    grid_sample_points[5].normal = Normal(
+        grid_sample_points[4].sampleValue, SampleField(indecies[5] + dx),
+        grid_sample_points[1].sampleValue, SampleField(indecies[5] + dy),
+        grid_sample_points[6].sampleValue, SampleField(indecies[5] + dz)
+    );
+
+    grid_sample_points[6].normal = Normal(
+        grid_sample_points[7].sampleValue, SampleField(indecies[6] + dx),
+        grid_sample_points[2].sampleValue, SampleField(indecies[6] + dy),
+        SampleField(indecies[6] - dz), grid_sample_points[5].sampleValue
+    );
+
+    grid_sample_points[7].normal = Normal(
+        SampleField(indecies[7] - dx), grid_sample_points[6].sampleValue,
+        grid_sample_points[3].sampleValue, SampleField(indecies[7] + dy),
+        SampleField(indecies[7] - dz), grid_sample_points[4].sampleValue
+    );
+
+    
+    
+    int cube_index = 0;
+    if (grid_sample_points[0].sampleValue < surface_level)
+        cube_index |= 1;
+    if (grid_sample_points[1].sampleValue < surface_level)
+        cube_index |= 2;
+    if (grid_sample_points[2].sampleValue < surface_level)
+        cube_index |= 4;
+    if (grid_sample_points[3].sampleValue < surface_level)
+        cube_index |= 8;
+    if (grid_sample_points[4].sampleValue < surface_level)
+        cube_index |= 16;
+    if (grid_sample_points[5].sampleValue < surface_level)
+        cube_index |= 32;
+    if (grid_sample_points[6].sampleValue < surface_level)
+        cube_index |= 64;
+    if (grid_sample_points[7].sampleValue < surface_level)
+        cube_index |= 128;
+
+    int edge_index = edgeTable[cube_index];
+
+    if (edge_index == 0)
+        return;
+    
+    if ((edge_index & 1) != 0)
+        result_vertecies[0] = 
+            VertexInterp(grid_sample_points[0], grid_sample_points[1]);
+    if ((edge_index & 2) != 0)
+        result_vertecies[1] = 
+            VertexInterp(grid_sample_points[1], grid_sample_points[2]);
+    if ((edge_index & 4) != 0)
+        result_vertecies[2] = 
+            VertexInterp(grid_sample_points[2], grid_sample_points[3]);
+    if ((edge_index & 8) != 0)
+        result_vertecies[3] = 
+            VertexInterp(grid_sample_points[3], grid_sample_points[0]);
+    if ((edge_index & 16) != 0)
+        result_vertecies[4] = 
+            VertexInterp(grid_sample_points[4], grid_sample_points[5]);
+    if ((edge_index & 32) != 0)
+        result_vertecies[5] = 
+            VertexInterp(grid_sample_points[5], grid_sample_points[6]);
+    if ((edge_index & 64) != 0)
+        result_vertecies[6] = 
+            VertexInterp(grid_sample_points[6], grid_sample_points[7]);
+    if ((edge_index & 128) != 0)
+        result_vertecies[7] = 
+            VertexInterp(grid_sample_points[7], grid_sample_points[4]);
+    if ((edge_index & 256) != 0)
+        result_vertecies[8] = 
+            VertexInterp(grid_sample_points[0], grid_sample_points[4]);
+    if ((edge_index & 512) != 0)
+        result_vertecies[9] = 
+            VertexInterp(grid_sample_points[1], grid_sample_points[5]);
+    if ((edge_index & 1024) != 0)
+        result_vertecies[10] = 
+            VertexInterp(grid_sample_points[2], grid_sample_points[6]);
+    if ((edge_index & 2048) != 0)
+        result_vertecies[11] = 
+            VertexInterp(grid_sample_points[3], grid_sample_points[7]);
+
+    SamplePoint result[15];
+    int pointsCount = 0;
+
+    for (int i = 0; triTable[cube_index][i] != -1; i += 3) 
+    {
+        result[pointsCount] = result_vertecies[triTable[cube_index][i]];
+        result[pointsCount + 1] = result_vertecies[triTable[cube_index][i + 1]];
+        result[pointsCount + 2] = result_vertecies[triTable[cube_index][i + 2]];
+
+        pointsCount += 3;
+    }
+
+    // int pointsCount = 2;
+    // result[0] = Triangle(vec4(result_vertecies[2].xyz, 1.), vec4(result_vertecies[3].xyz, 1.), vec4(result_vertecies[11].xyz, 1.));
+    // result[1] = Triangle(vec4(result_vertecies[2].xyz, 1.), vec4(result_vertecies[6].xyz, 1.), vec4(result_vertecies[11].xyz, 1.));
+
+    int write_position = atomicAdd(writeIndex, pointsCount);
+
+    for (int i = 0; i < pointsCount; i++) 
+    {
+        outputTriangles[(write_position + i) * 6] = result[i].position.x;
+        outputTriangles[(write_position + i) * 6 + 1] = result[i].position.y;
+        outputTriangles[(write_position + i) * 6 + 2] = result[i].position.z;
+
+        outputTriangles[(write_position + i) * 6 + 3] = result[i].normal.x;
+        outputTriangles[(write_position + i) * 6 + 4] = result[i].normal.y;
+        outputTriangles[(write_position + i) * 6 + 5] = result[i].normal.z;
+    }
+}
