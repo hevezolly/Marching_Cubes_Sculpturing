@@ -16,7 +16,7 @@ pub struct VertexArrayObject<V: VertexDef + Send + Sync + 'static> {
     constraint: PhantomData<V>
 }
 
-pub fn apply_attributes_to_biden_buffer(attributes: &Vec<VertexAttrib>) {
+pub fn apply_attributes_to_bound_buffer(attributes: &Vec<VertexAttrib>) {
     let stride = attributes.iter().map(|v| v.attribute_size).sum();
     let mut offset = 0;
     for (index, attrib) in attributes.iter().enumerate() {
@@ -53,7 +53,7 @@ impl<V: VertexDef + Send + Sync + 'static> VertexArrayObject<V> {
             GL!(gl::GenVertexArrays(1, &mut id));
             GL!(gl::BindVertexArray(id));
 
-            apply_attributes_to_biden_buffer(&V::get_attributes());
+            apply_attributes_to_bound_buffer(&V::get_attributes());
 
             let vao = Self { id, constraint: PhantomData };
             map.insert(vao);

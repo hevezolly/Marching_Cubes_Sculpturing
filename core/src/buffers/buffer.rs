@@ -3,7 +3,7 @@ use std::{ffi::c_void, marker::PhantomData, mem::size_of, ops::Index, ptr::null}
 use egui::Context;
 use egui_glfw_gl::gl::{self, types::{GLenum, GLboolean, GLint}};
 
-use crate::{buffers::vertex_attributes::{apply_attributes_to_biden_buffer, VertexArrayObject}, GL};
+use crate::{buffers::vertex_attributes::{apply_attributes_to_bound_buffer, VertexArrayObject}, GL};
 
 use super::vertex_attributes::{VertexAttrib, GlAttributeType, VertexDef};
 
@@ -76,15 +76,28 @@ impl<'a, B: Buffer> DefaultBoundBufferContext<'a, B> {
 
 #[derive(Debug, Clone, Copy)]
 pub enum UsageFrequency {
+    // The data store contents will be modified once and used at most a few times.
     Stream,
+
+    // The data store contents will be modified once and used many times.
     Static,
+
+    // The data store contents will be modified repeatedly and used many times.
     Dynamic
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum UsagePattern {
+    // The data store contents are modified by the application, 
+    // and used as the source for GL drawing and image specification commands.
     Draw,
+
+    // The data store contents are modified by reading data from the GL, 
+    // and used to return that data when queried by the application.
     Read,
+
+    // The data store contents are modified by reading data from the GL, 
+    // and used as the source for GL drawing and image specification commands.
     Copy,
 }
 
@@ -241,6 +254,7 @@ fn empty<Data: Sized>(buffer_type: u32, elements_count: usize, hint: Usage) {
 
 pub type IndexBuffer = GenericBuffer<{gl::ELEMENT_ARRAY_BUFFER}>;
 pub type ShaderStorageBuffer = GenericBuffer<{gl::SHADER_STORAGE_BUFFER}>;
+pub type DrawIndirectBuffer = GenericBuffer<{gl::DRAW_INDIRECT_BUFFER}>;
 
 pub struct GenericBuffer<const BUFFER_TYPE: u32> {
     id: u32

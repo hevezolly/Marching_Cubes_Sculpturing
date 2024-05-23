@@ -19,13 +19,20 @@ layout(std430, binding = 2) writeonly buffer outputLayout
     float outputTriangles[];
 };
 
-layout(std430, binding = 1) buffer writeIndexBuffer {
-    int writeIndex;
-};
+layout(std430, binding = 1) buffer commanBuffer {
+    uint count;
+    uint prim_count;
+    uint first;
+    uint reserved;
+} Command;
 
 layout(std430, binding = 3) readonly buffer triTableBuffer 
 {
     int triTable[256][16]; 
+};
+
+layout(std430, binding = 4) writeonly buffer fillCacheLayout {
+    int fillCache[];
 };
 
 const int edgeTable[256]= int[256](
@@ -102,6 +109,29 @@ float SampleField(ivec3 index) {
 
     index = clamp(index + ivec3(1, 1, 1), ivec3(0, 0, 0), num_boxes + ivec3(2, 2, 2));
     return imageLoad(scalarField, index).r;
+}
+
+int[2] cachePositionAndMask(ivec3 box_coord) {
+    int position = box_coord.x + 
+                   box_coord.y * num_boxes.x + 
+                   box_coord.z * num_boxes.y * num_boxes.x;
+
+    int block_id = position / 32;
+    int mask = 1 << (position % 32);
+    return int[](
+        block_id,
+        mask
+    );
+}
+
+void setCacheBlock(bool filled, ivec3 box_coord) {
+    int[] id_mask = cachePositionAndMask(box_coord);
+    if (!filled) {
+        atomicAnd(fillCache[id_mask[0]], id_mask[1] ^ (-1));
+    }
+    else {
+        atomicOr(fillCache[id_mask[0]], id_mask[1]);
+    }
 }
 
 void main() {
@@ -227,7 +257,10 @@ void main() {
 
     int edge_index = edgeTable[cube_index];
 
-    if (edge_index == 0)
+    bool fill = edge_index != 0 && edge_index != 255;
+
+    setCacheBlock(fill, box_coord);
+    if (!fill)
         return;
     
     if ((edge_index & 1) != 0)
@@ -283,7 +316,7 @@ void main() {
     // result[0] = Triangle(vec4(result_vertecies[2].xyz, 1.), vec4(result_vertecies[3].xyz, 1.), vec4(result_vertecies[11].xyz, 1.));
     // result[1] = Triangle(vec4(result_vertecies[2].xyz, 1.), vec4(result_vertecies[6].xyz, 1.), vec4(result_vertecies[11].xyz, 1.));
 
-    int write_position = atomicAdd(writeIndex, pointsCount);
+    uint write_position = atomicAdd(Command.count, pointsCount);
 
     for (int i = 0; i < pointsCount; i++) 
     {

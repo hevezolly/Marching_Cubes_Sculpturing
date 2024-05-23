@@ -1,7 +1,10 @@
 use core::buffers::buffer::BoundBufferContext;
+use core::buffers::buffer::DrawIndirectBuffer;
 use core::buffers::buffer::IndexBuffer;
 use core::buffers::buffer::ShaderStorageBuffer;
 use core::buffers::buffer::Usage;
+use core::buffers::buffer::UsageFrequency;
+use core::buffers::buffer::UsagePattern;
 use core::buffers::buffer::VertexBuffer;
 use core::buffers::vertex_attributes::VertexArrayObject;
 use core::shaders::shader::Shader;
@@ -20,8 +23,10 @@ use std::cmp::max;
 use std::cmp::min;
 // use core::shaders::Shader;
 use std::ffi::c_void;
+use std::ops::Index;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use egui_glfw_gl::egui::Color32;
 use egui_glfw_gl::egui::CtxRef;
@@ -43,7 +48,11 @@ use glam::Vec4Swizzles;
 
 use crate::algorithms::camera::Camera;
 use crate::algorithms::camera::perspective::PerspectiveCamera;
+use crate::application::bit_field;
+use crate::application::bit_field::NUM_OF_BITMASK_VALUES;
 use crate::application::triangulation_table::produce_triangulation_buffer;
+
+use super::bit_field::BitField;
 
 
 #[derive(Uniforms)]
@@ -85,22 +94,6 @@ struct ModelDisplayUniform {
 }
 
 
-pub struct ExecutrionLogick {
-    mode_vertex_buffer: VertexBuffer<ModelVertex>,
-    camera: PerspectiveCamera,
-    model_programm: ShaderProgramm,
-    slice: f32,
-    vertecies_count: i32,
-    // image: Image
-    // programm: ShaderProgramm,
-}
-
-const NUM_OF_CUBES: IVec3 = IVec3 { x: 32, y: 32, z: 32 };
-const TEXTURE_DIM: IVec3 = IVec3 { 
-    x: NUM_OF_CUBES.x + 2, 
-    y: NUM_OF_CUBES.y + 2, 
-    z: NUM_OF_CUBES.z + 2 
-};
 
 #[repr(C)]
 #[derive(VertexDef)]
@@ -110,16 +103,49 @@ struct DefaultVertex {
 }
 
 #[repr(C)]
-#[derive(VertexDef)]
+#[derive(VertexDef, Clone)]
 struct ModelVertex {
     position: Vec3,
     normal: Vec3
 }
 
-impl ExecutrionLogick {
-    pub fn init() -> ExecutrionLogick {
-        
-        let positions = [
+#[repr(C)]
+#[derive(VertexDef, Clone)]
+struct Command {
+    count: u32,
+    primitive_count: u32,
+    first: u32,
+    reserved: u32,
+}
+
+impl Default for Command {
+    fn default() -> Self {
+        Self { count: 0, primitive_count: 1, first: 0, reserved: 0 }
+    }
+}
+pub struct ExecutrionLogick {
+    mode_vertex_buffer: VertexBuffer<ModelVertex>,
+    command_buffer: DrawIndirectBuffer,
+    camera: PerspectiveCamera,
+    model_programm: ShaderProgramm,
+    bit_field: BitField,
+    slice: f32,
+    // image: Image
+    // programm: ShaderProgramm,
+}
+
+pub const NUM_OF_CUBES: IVec3 = IVec3 { x: 32, y: 32, z: 32 };
+
+
+const TEXTURE_DIM: IVec3 = IVec3 { 
+    x: NUM_OF_CUBES.x + 3, 
+    y: NUM_OF_CUBES.y + 3, 
+    z: NUM_OF_CUBES.z + 3 
+};
+
+fn quad() -> (VertexBuffer<DefaultVertex>, IndexBuffer) 
+{
+    let positions = [
             DefaultVertex { psition: vec3(-1., -1., 1.), uv: vec2(0., 0.) },
             DefaultVertex { psition: vec3( 1., -1., 1.), uv: vec2(1., 0.) },
             DefaultVertex { psition: vec3( 1.,  1., 1.), uv: vec2(1., 1.) },
@@ -139,18 +165,29 @@ impl ExecutrionLogick {
         index_buffer.bind()
             .new_data(&indecies, Usage::static_draw())
             .unbind();
+    (vertex_buffer, index_buffer)
+}
 
-        let model_vertecies_buffer = ShaderStorageBuffer::new();
-        model_vertecies_buffer.bind()
-            .empty::<[Vec3;3]>(
-                (NUM_OF_CUBES.x * NUM_OF_CUBES.y * NUM_OF_CUBES.z * 5) as usize,
+impl ExecutrionLogick {
+    pub fn init() -> ExecutrionLogick {
+        
+        let mode_vertex_buffer = VertexBuffer::new();
+        mode_vertex_buffer
+            .bind()
+            .empty(
+                (NUM_OF_CUBES.x * NUM_OF_CUBES.y * NUM_OF_CUBES.z * 15) as usize,
                 Usage::dynamic_copy()
             )
             .unbind();
-        let count_buffer = ShaderStorageBuffer::new();
-        count_buffer.bind()
-            .new_data(&[0], Usage::dynamic_read())
+
+        let command_buffer = DrawIndirectBuffer::new();
+        command_buffer
+            .bind()
+            .new_data(&[Command::default()], 
+                Usage::dynamic_copy())
             .unbind();
+
+        let mut bit_field = BitField::new();
     
         let triangulation_buffer = produce_triangulation_buffer();
 
@@ -220,37 +257,31 @@ impl ExecutrionLogick {
         marching_cubes.bind().set_uniforms(MarchingCubesUniforms { 
             scalar_field: 1.into(), 
             origin_offset: Vec3::ZERO, 
-            field_scale: 3. * Vec3::ONE / NUM_OF_CUBES.as_vec3(), 
+            field_scale: Vec3::ONE / vec3(NUM_OF_CUBES.x as f32, 
+                NUM_OF_CUBES.y as f32,
+                NUM_OF_CUBES.z as f32), 
             num_boxes: NUM_OF_CUBES, 
-            surface_level: 0.4 }
+            surface_level: 0.3 }
         ).unwrap()
-        .set_buffer(&count_buffer, 1)
-        .set_buffer(&model_vertecies_buffer, 2)
-        .set_buffer(&triangulation_buffer, 3);
+        .set_buffer(&command_buffer, 1)
+        .set_buffer(&mode_vertex_buffer, 2)
+        .set_buffer(&triangulation_buffer, 3)
+        .set_buffer(bit_field.buffer(), 4);
 
         GL!(gl::DispatchCompute((NUM_OF_CUBES.x) as u32, (NUM_OF_CUBES.y) as u32, (NUM_OF_CUBES.z) as u32));
         GL!(gl::MemoryBarrier(gl::SHADER_STORAGE_BARRIER_BIT));
-            
-        let mut vertecies_count = [0i32];
-
-        count_buffer.bind().read_from_start_to(&mut vertecies_count).unbind();
-        let vertecies_count = vertecies_count[0];
-
-        // let mut vertecies = vec![Vec3::ZERO; triangles_count as usize * 3];
-        // model_vertecies_buffer.bind().read_from_start_to(&mut vertecies).unbind();
-
-        // dbg!(vertecies);
-
-        dbg!(vertecies_count);
+        
+        bit_field.readback();
 
         let camera = PerspectiveCamera::new(90., 0.01, 100.);
 
         ExecutrionLogick { 
             camera, 
             slice: 0.,
-            mode_vertex_buffer: model_vertecies_buffer.rebind(),
+            mode_vertex_buffer,
             model_programm,
-            vertecies_count,
+            command_buffer,
+            bit_field
         }
 
     }
@@ -270,10 +301,12 @@ impl ExecutrionLogick {
         }).unwrap();
 
         // GL!(gl::DrawArrays(gl::TRIANGLES, self.offset * 3, self.draw_count * 3));
-        GL!(gl::DrawArrays(gl::TRIANGLES, 0, self.vertecies_count));
+        self.command_buffer.bind();
+        GL!(gl::DrawArraysIndirect(gl::TRIANGLES, (0) as *const c_void));
 
         self.mode_vertex_buffer.unbind();
         self.model_programm.unbind();
+        self.command_buffer.unbind();
     }
 
     pub fn draw(&mut self, params: Parameters) {
@@ -287,9 +320,16 @@ impl ExecutrionLogick {
 
         // self.draw_quad();
         self.draw_model();
+
+        GL!(gl::Disable(gl::DEPTH_TEST));
     }
 
-    fn draw_box(&self, egui_ctx: &CtxRef, corner: Vec3, size: Vec3, screen_size: Vec2) {
+    fn draw_box(&self, 
+        egui_ctx: &CtxRef, 
+        corner: Vec3, 
+        size: Vec3, 
+        screen_size: Vec2,
+        color: Color32) {
         let painter = egui_ctx.debug_painter();
         let corner = vec4(corner.x, corner.y, corner.z, 1.);
 
@@ -332,7 +372,7 @@ impl ExecutrionLogick {
         let rtb = Pos2::new(rtb.x * screen_size.x, (1. - rtb.y) * screen_size.y);
         let rtf = Pos2::new(rtf.x * screen_size.x, (1. - rtf.y) * screen_size.y);
 
-        let stroke = Stroke::new(1., Color32::GREEN);
+        let stroke = Stroke::new(1., color);
 
         painter.line_segment([lbb, rbb], stroke);
         painter.line_segment([ltb, lbb], stroke);
@@ -353,30 +393,7 @@ impl ExecutrionLogick {
 
     pub fn draw_ui(&mut self, egui_ctx: &CtxRef, params: Parameters) {
         egui::Window::new("Settings").show(egui_ctx, |ui| {
-            ui.add(egui::Slider::new(&mut self.slice, 0.0..=1.0).text("slice"));
-            let mut scale = self.camera.transform.scale().x;
-
-            ui.add(egui::DragValue::new(&mut scale).speed(0.1));
-            self.camera.transform.set_scale(vec3(scale, scale, scale));
-
-            const speed: f32 = 0.2;
-
-            // let mut offset = self.offset;
-            // let mut count = self.draw_count;
-            // if ui.add(egui::Slider::new(&mut offset, 0..=(self.triangles_count - 1))
-            //     .text("offset"))
-            //     .changed() {
-            //     count = min(count, self.triangles_count - offset);
-            // }
-
-            // if ui.add(egui::Slider::new(&mut count, 1..=self.triangles_count)
-            //     .text("count"))
-            //     .changed() {
-            //     offset = min(offset, self.triangles_count - count);
-            // }
-
-            // self.offset = offset;
-            // self.draw_count = count;
+            const speed: f32 = 0.1;
 
             let mut fov = self.camera.fov();
             ui.add(egui::Slider::new(&mut fov, 1.0..=179.).text("fov"));
@@ -414,11 +431,40 @@ impl ExecutrionLogick {
             // for x in 0..NUM_OF_CUBES.x {
             //     for y in 0..NUM_OF_CUBES.y {
             //         for z in 0..NUM_OF_CUBES.z {
-            //             let position = ivec3(x, y, z).as_vec3() * scale;
-            //             self.draw_box(egui_ctx, position, scale, size);
+            //             let index = ivec3(x, y, z);
+            //             let position = index.as_vec3() * scale;
+                        
+            //             if !self.bit_field[index] {    
+            //                 self.draw_box(
+            //                     egui_ctx,
+            //                     position,
+            //                     scale,
+            //                     size, 
+            //                     Color32::GREEN);
+            //             }
+
             //         }
             //     }
             // } 
+
+            // for x in 0..NUM_OF_CUBES.x {
+            //     for y in 0..NUM_OF_CUBES.y {
+            //         for z in 0..NUM_OF_CUBES.z {
+            //             let index = ivec3(x, y, z);
+            //             let position = index.as_vec3() * scale;
+                        
+            //             if self.bit_field[index] {    
+            //                 self.draw_box(
+            //                     egui_ctx,
+            //                     position,
+            //                     scale,
+            //                     size, 
+            //                     Color32::RED);
+            //             }
+
+            //         }
+            //     }
+            // }
         });
     }
 }

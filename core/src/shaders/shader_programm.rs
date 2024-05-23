@@ -85,7 +85,7 @@ impl<'a> ShaderProgrammContext<'a> {
         Ok(self)
     }
 
-    pub fn set_buffer(self, buffer: &ShaderStorageBuffer, binding: u32) -> Self {
+    pub fn set_buffer<B: Buffer>(self, buffer: &B, binding: u32) -> Self {
         GL!(gl::BindBufferBase(gl::SHADER_STORAGE_BUFFER, binding, buffer.id()));
         self
     }

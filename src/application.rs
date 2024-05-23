@@ -9,6 +9,7 @@ use egui_glfw_gl::egui::{self, Rect, Pos2, vec2};
 use self::app_logick::{ExecutrionLogick, Parameters};
 
 pub mod app_logick;
+pub mod bit_field;
 mod triangulation_table;
 
 pub struct EguiContext {
