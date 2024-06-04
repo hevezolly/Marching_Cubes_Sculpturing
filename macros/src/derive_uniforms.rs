@@ -149,7 +149,7 @@ fn get_file_uniforms(parsed_item: &ItemStruct) -> Option<Vec<UniformDef>> {
         for lit in paths {
             let path_str = lit.value();
             let path = PathBuf::from(&path_str).canonicalize().expect(&format!("path {} does not exist", &path_str));
-    
+            
             if !path.is_file() {
                 panic!("path {} should be a file", path_str);
             }

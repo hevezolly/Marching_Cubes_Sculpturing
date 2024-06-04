@@ -1,4 +1,5 @@
 use core::{OpenglAlias, GL};
+use std::panic::UnwindSafe;
 use std::ptr::null;
 use std::{sync::mpsc::Receiver, time::Instant};
 
@@ -8,9 +9,9 @@ use egui_glfw_gl::egui::{self, Rect, Pos2, vec2};
 
 use self::app_logick::{ExecutrionLogick, Parameters};
 
-pub mod app_logick;
-pub mod bit_field;
-mod triangulation_table;
+mod app_logick;
+mod chunk;
+mod support;
 
 pub struct EguiContext {
     pub painter: egui_glfw_gl::Painter,
@@ -24,19 +25,22 @@ impl EguiContext {
         let painter = egui_glfw_gl::Painter::new(window, width, height);
         let egui_ctx = egui::CtxRef::default();
 
+        
+
         let (width, height) = window.get_framebuffer_size();
-        let native_pixels_per_point = window.get_content_scale().0;
+        // let native_pixels_per_point = window.get_content_scale().0;
+        // dbg!(window.get_content_scale());
 
         let egui_input_state = egui_glfw_gl::EguiInputState::new(egui::RawInput {
             screen_rect: Some(Rect::from_min_size(
                 Pos2::new(0f32, 0f32),
-                vec2(width as f32, height as f32) / native_pixels_per_point,
+                vec2(width as f32, height as f32),
             )),
-            pixels_per_point: Some(native_pixels_per_point),
+            pixels_per_point: Some(1.),
             ..Default::default()
         });
 
-        EguiContext { painter, egui_ctx, egui_input_state, native_pixels_per_point }
+        EguiContext { painter, egui_ctx, egui_input_state, native_pixels_per_point: 1. }
     }
 }
 
@@ -49,6 +53,7 @@ pub struct Application {
     pub start_time: Instant,
     execution_logick: Option<ExecutrionLogick>,
 }
+
 
 fn configure_glfw(glfw: &mut Glfw) {
     glfw.window_hint(glfw::WindowHint::ContextVersion(3, 2));
@@ -107,6 +112,7 @@ impl Application {
         GL!(gl::Enable(gl::DEBUG_OUTPUT_SYNCHRONOUS));
         GL!(gl::DebugMessageCallback(Some(message_callback), null()));
         GL!(gl::DebugMessageControl(gl::DONT_CARE, gl::DONT_CARE, gl::DONT_CARE, 0, null(), gl::FALSE));
+        // GL!(gl::DebugMessageControl(gl::DONT_CARE, gl::DONT_CARE, gl::DONT_CARE, 0, null(), gl::TRUE));
         
         GL!(gl::DebugMessageControl(gl::DONT_CARE, gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR, gl::DONT_CARE, 0, null(), gl::TRUE));
         GL!(gl::DebugMessageControl(gl::DONT_CARE, gl::DEBUG_TYPE_ERROR, gl::DONT_CARE, 0, null(), gl::TRUE));

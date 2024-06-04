@@ -3,11 +3,12 @@ use std::{collections::HashMap, ffi::{CString, CStr}, fs, path::Path, ptr::{null
 use egui_glfw_gl::gl::{self, types::{self, GLint}};
 
 
-use crate::{buffers::buffer::{Buffer, ShaderStorageBuffer}, GL};
+use crate::{buffers::buffer::{Buffer}, GL};
 
 use super::{shader::Shader, uniforms::{Uniforms, UniformCompatableType}, ShaderError};
 
 
+#[derive(Debug)]
 pub struct ShaderProgramm {
     pub id: u32,
     uniforms_mapping: HashMap<String, GLint>,
@@ -18,11 +19,11 @@ pub struct ShaderProgrammBuilder {
 }
 
 
-impl Drop for ShaderProgramm {
-    fn drop(&mut self) {
-        GL!(gl::DeleteProgram(self.id));
-    }
-}
+// impl Drop for ShaderProgramm {
+//     fn drop(&mut self) {
+//         GL!(gl::DeleteProgram(self.id));
+//     }
+// }
 
 
 impl ShaderProgramm {
@@ -85,8 +86,8 @@ impl<'a> ShaderProgrammContext<'a> {
         Ok(self)
     }
 
-    pub fn set_buffer<B: Buffer>(self, buffer: &B, binding: u32) -> Self {
-        GL!(gl::BindBufferBase(gl::SHADER_STORAGE_BUFFER, binding, buffer.id()));
+    pub fn set_buffer<T: AsRef<Buffer>>(self, buffer: T, binding: u32) -> Self {
+        GL!(gl::BindBufferBase(gl::SHADER_STORAGE_BUFFER, binding, buffer.as_ref().id()));
         self
     }
 }

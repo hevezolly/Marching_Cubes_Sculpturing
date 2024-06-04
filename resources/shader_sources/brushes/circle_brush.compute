@@ -1,0 +1,39 @@
+#version 430 core
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(r32f, binding = 0) uniform image3D source;
+layout(r32f, binding = 1) uniform image3D destination;
+
+uniform mat4 transform;
+uniform vec2 falloff_strength;
+
+void main() {
+    ivec3 id = ivec3(gl_GlobalInvocationID.xyz);
+    ivec3 im_size = ivec3(imageSize(source).xyz);
+    if (id.x >= im_size.x || 
+        id.y >= im_size.y || 
+        id.z >= im_size.z) {
+        return;
+    }
+        
+    vec4 raw_uvw = transform * vec4(vec3(id) / (
+        vec3(gl_NumWorkGroups.xyz) - vec3(1.)), 1.);
+
+    vec3 uvw = raw_uvw.xyz / raw_uvw.w;
+
+    float len = length(uvw);
+
+    vec4 value_to_write = imageLoad(source, id);
+
+    if (uvw.x <= 1. && uvw.x >= -1. &&
+        uvw.y <= 1. && uvw.y >= -1. &&
+        uvw.z <= 1. && uvw.z >= -1 &&
+        len <= 1.) {
+        float add = falloff_strength.y * pow(1. - len, falloff_strength.x);
+        // value_to_write = vec4(clamp(1., 0., 1.), 0., 0., 0.);
+        value_to_write = vec4(clamp(value_to_write.r + add, 0., 1.), 0., 0., 0.);
+    }
+
+    imageStore(destination, id, value_to_write);
+}

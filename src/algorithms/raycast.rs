@@ -2,6 +2,8 @@ use std::arch::x86_64::__cpuid;
 
 use glam::{IVec3, Vec2, Vec3, Vec3Swizzles};
 
+use super::Triangle;
+
 // use crate::field::coordinates::{Cord, PartialComponents};
 
 // use super::triangulation::Triangle;
@@ -46,32 +48,30 @@ fn ray_plane_intersection(position: Vec3, normal: Vec3, ray: Ray) -> Option<Vec3
     }
 }
 
-// pub fn ray_triangle_intersection(ray: Ray, triangle: &Triangle) -> Option<Vec3> {
-//     let plane_position = triangle.a().position;
-//     let r1 = triangle.b().position - triangle.a().position;
-//     let r2 = triangle.c().position - triangle.a().position;
-//     let plane_normal = Vec3::cross(r1, r2).normalize();
-//     if let Some(plane_hit) = ray_plane_intersection(plane_position, plane_normal, ray) {
-//         // return Some(plane_hit);
-//         let e1 = Vec3::cross(triangle.ab(), plane_hit - triangle.a().position).normalize();
-//         let e2 = Vec3::cross(triangle.bc(), plane_hit - triangle.b().position).normalize();
-//         let e3 = Vec3::cross(triangle.ca(), plane_hit - triangle.c().position).normalize();
+pub fn ray_triangle_intersection(ray: Ray, triangle: &Triangle) -> Option<Vec3> {
+    let plane_position = triangle.a();
+    let plane_normal = triangle.normal();
+    if let Some(plane_hit) = ray_plane_intersection(plane_position, plane_normal, ray) {
+        // return Some(plane_hit);
+        let e1 = Vec3::cross(triangle.ab(), plane_hit - triangle.a()).normalize();
+        let e2 = Vec3::cross(triangle.bc(), plane_hit - triangle.b()).normalize();
+        let e3 = Vec3::cross(triangle.ca(), plane_hit - triangle.c()).normalize();
 
-//         let e1 = Vec3::dot(e1, plane_normal) >= 0.;
-//         let e2 = Vec3::dot(e2, plane_normal) >= 0.;
-//         let e3 = Vec3::dot(e3, plane_normal) >= 0.;
+        let e1 = Vec3::dot(e1, plane_normal) >= 0.;
+        let e2 = Vec3::dot(e2, plane_normal) >= 0.;
+        let e3 = Vec3::dot(e3, plane_normal) >= 0.;
 
-//         if (e1 == e2) && (e2 == e3) && (e1 == e3) {
-//             Some(plane_hit)
-//         }
-//         else {
-//             None
-//         }
-//     }
-//     else {
-//         None
-//     }
-// }
+        if (e1 == e2) && (e2 == e3) && (e1 == e3) {
+            Some(plane_hit)
+        }
+        else {
+            None
+        }
+    }
+    else {
+        None
+    }
+}
 
 fn inside_rect(rect_min: Vec2, rect_size: Vec2, point: Vec2) -> bool {
     point.x >= rect_min.x && point.x <= rect_min.x + rect_size.x && point.y >= rect_min.y && point.y <= rect_min.y + rect_size.y

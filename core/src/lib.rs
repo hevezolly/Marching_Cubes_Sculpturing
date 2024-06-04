@@ -4,6 +4,7 @@ use textures::{texture::Texture, TextureUnit};
 pub mod shaders;
 pub mod buffers;
 pub mod textures;
+pub mod context;
 
 #[macro_export]
 macro_rules! GL {
@@ -13,6 +14,8 @@ macro_rules! GL {
             let mut opengl_error: u32 = unsafe {gl::GetError()};
             while (opengl_error != gl::NO_ERROR) {
                 dbg!(opengl_error);
+                // std::process::exit(1);
+                // panic!("opengl error occured");
                 opengl_error = unsafe {gl::GetError()};
             }
             res

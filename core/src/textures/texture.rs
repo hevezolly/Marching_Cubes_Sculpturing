@@ -2,18 +2,25 @@
 use std::{marker::PhantomData, ptr::null};
 
 use egui_glfw_gl::{egui::Image, gl};
+use glam::{ivec3, IVec3};
 
 use crate::{GL, OpenglAlias};
 
 use super::{image_provider::{ImageFormat, ImageProvider2D}, TextureUnit};
 
 
+enum TextureBindType {
+    None,
+    Texture(TextureUnit),
+    ImageTexture(TextureUnit)
+}
 
 pub struct Texture {
     id: u32,
     format: ImageFormat,
     texture_target: u32,
-    slot: Option<TextureUnit> 
+    dimentions: IVec3,
+    bind: TextureBindType 
 }
 
 pub trait TextureFilterMode{
@@ -101,7 +108,7 @@ pub struct TextureBuilder<TextureType> {
 fn new_texture(image_type: u32) -> Texture {
     let mut id = 0;
     GL!(gl::GenTextures(1, &mut id));
-    let tex = Texture { id, texture_target: image_type, slot: None, format: Default::default() };
+    let tex = Texture { id, texture_target: image_type, bind: TextureBindType::None, format: Default::default(), dimentions: IVec3::ZERO };
     GL!(gl::BindTexture(tex.texture_target, tex.id));
     tex
 }
@@ -123,48 +130,71 @@ impl TextureAccess {
     }
 }
 
+
+
 impl Texture {
 
     pub fn bind<T: Into<TextureUnit>>(&mut self, unit: T) {
         let unit = unit.into();
 
-        self.unbind();
+        // self.unbind();
 
-        self.slot = Some(unit);
+        self.bind = TextureBindType::Texture(unit);
         GL!(gl::ActiveTexture(unit.gl_slot()));
         GL!(gl::BindTexture(self.texture_target, self.id));
     }
 
     pub fn bind_image_lod<T: Into<TextureUnit>>(&mut self, lod: i32, unit: T, access: TextureAccess) {
         let unit = unit.into();
-        self.unbind();
+        // self.unbind();
 
-        self.slot = Some(unit);
+        self.bind = TextureBindType::ImageTexture(unit);
         GL!(gl::ActiveTexture(unit.gl_slot()));
         GL!(gl::BindImageTexture(
             unit.0 as u32, 
             self.id, 
             lod, 
-            gl::FALSE, 
+            gl::TRUE, 
             0, 
             access.gl_access(), 
             self.format.internal_format))
+    }
+
+    pub fn size(&self) -> IVec3 {
+        self.dimentions
     }
 
     pub fn bind_image<T: Into<TextureUnit>>(&mut self, unit: T, access: TextureAccess) {
         self.bind_image_lod(self.format.lod, unit, access)
     }
 
-    pub fn unbind(&mut self) {
-        if let Some(slot) = self.slot {
-            GL!(gl::ActiveTexture(slot.gl_slot()));
-            GL!(gl::BindTexture(self.texture_target, 0));
-            self.slot = None;
-        }
-    }
+    // pub fn unbind(&mut self) {
+    //     match self.bind {
+    //         TextureBindType::None => return,
+    //         TextureBindType::Texture(u) => {
+    //             GL!(gl::ActiveTexture(u.gl_slot()));
+    //             GL!(gl::BindTexture(self.texture_target, 0));
+    //         },
+    //         TextureBindType::ImageTexture(u) => {
+    //             GL!(gl::ActiveTexture(u.gl_slot()));
+    //             GL!(gl::BindImageTexture(
+    //                 u.0 as u32, 
+    //                 self.id, 
+    //                 self.format.lod, 
+    //                 gl::TRUE, 
+    //                 0, 
+    //                 TextureAccess::ReadWrite.gl_access(), 
+    //                 self.format.internal_format))
+    //         },
+    //     }
+    // }
 
     pub fn slot(&self) -> Option<TextureUnit> {
-        self.slot
+        match self.bind {
+            TextureBindType::None => None,
+            TextureBindType::Texture(u) => Some(u),
+            TextureBindType::ImageTexture(u) => Some(u),
+        }
     }
 
     pub fn new_1d() -> TextureBuilder<TexType1d> {
@@ -301,6 +331,7 @@ impl TextureBuilder<TexType2d>  {
             description.data_type,
             provider.data()
         ));
+        self.tex.dimentions = ivec3(provider.width(), provider.height(), 1);
         build(self)
     }
 
@@ -317,6 +348,7 @@ impl TextureBuilder<TexType2d>  {
             description.data_type,
             null()
         ));
+        self.tex.dimentions = ivec3(width, height, 1);
         build(self)
     }
 }
@@ -336,13 +368,14 @@ impl TextureBuilder<TexType3d> {
             description.data_type,
             null()
         ));
+        self.tex.dimentions = ivec3(width, height, depth);
         build(self)
     }
 }
 
-impl Drop for Texture {
-    fn drop(&mut self) {
-        self.unbind();
-        GL!(gl::DeleteTextures(1, &self.id))
-    }
-}
+// impl Drop for Texture {
+//     fn drop(&mut self) {
+//         self.unbind();
+//         GL!(gl::DeleteTextures(1, &self.id))
+//     }
+// }

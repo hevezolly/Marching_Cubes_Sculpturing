@@ -1,6 +1,6 @@
-use std::{ffi::c_void, marker::PhantomData, mem::size_of, sync::{atomic::AtomicUsize, Arc, Mutex, RwLock}};
+use std::{any::TypeId, ffi::c_void, marker::PhantomData, mem::size_of, sync::{atomic::AtomicUsize, Arc, Mutex, RwLock}};
 
-use anymap::{any::Any, AnyMap, Map};
+use egui::ahash::{HashMap, HashMapExt};
 use egui_glfw_gl::{gl::{self, types::{GLboolean, GLenum, GLint}}};
 use glam::{Vec2, Vec3, Vec4, IVec2, IVec3, IVec4};
 
@@ -9,11 +9,6 @@ use crate::GL;
 
 pub trait VertexDef: Sized {
     fn get_attributes() -> Vec<VertexAttrib>;
-}
-
-pub struct VertexArrayObject<V: VertexDef + Send + Sync + 'static> {
-    id: u32,
-    constraint: PhantomData<V>
 }
 
 pub fn apply_attributes_to_bound_buffer(attributes: &Vec<VertexAttrib>) {
@@ -33,42 +28,72 @@ pub fn apply_attributes_to_bound_buffer(attributes: &Vec<VertexAttrib>) {
     }
 }
 
-fn get_static_map<'a>() -> &'a mut Map<dyn Any + Send + Sync> {
-    static mut MAP: Mutex<Option<anymap::Map<dyn Any + Send + Sync>>> = Mutex::new(None);
-
-    unsafe { MAP.get_mut().unwrap() }
-            .get_or_insert_with(|| anymap::Map::new()) 
+struct VAOContext {
+    type_map: HashMap<TypeId, u32>,
 }
 
-impl<V: VertexDef + Send + Sync + 'static> VertexArrayObject<V> {
-    pub fn bind() {
+impl VAOContext {
+    fn get_vao_id<V: VertexDef + 'static>(&self) -> Option<u32> {
+        let type_id = TypeId::of::<V>();
+        self.type_map.get(&type_id).map(|v| *v)
+    }
 
-        let mut map = get_static_map();
+    fn insert<V: VertexDef + 'static>(&mut self, id: u32) {
+        let type_id = TypeId::of::<V>();
+        self.type_map.insert(type_id, id);
+    } 
 
-        if let Some(val) = map.get::<Self>() {
-            GL!(gl::BindVertexArray(val.id));
+    fn remove_by_id(&mut self, id: u32) -> bool {
+        if let Some(type_id) = self.type_map
+            .iter()
+            .find(|(_, i)| **i == id).unzip().0.cloned() {
+
+            self.type_map.remove(&type_id);
+            true
         }
         else {
-            let mut id = 0;
-            GL!(gl::GenVertexArrays(1, &mut id));
-            GL!(gl::BindVertexArray(id));
-
-            apply_attributes_to_bound_buffer(&V::get_attributes());
-
-            let vao = Self { id, constraint: PhantomData };
-            map.insert(vao);
-        };
-    }
-
-    pub fn unbind() {
-        GL!(gl::BindVertexArray(0))
-    }
-
-    pub fn delete() {
-        let map = get_static_map();
-        if let Some(val) = map.remove::<Self>() {
-            GL!(gl::DeleteVertexArrays(1, &val.id));
+            false
         }
+    }
+}
+
+fn get_static_vao_context<'a>() -> &'a mut VAOContext {
+    static mut MAP: Mutex<Option<VAOContext>> = Mutex::new(None);
+
+    unsafe { MAP.get_mut().unwrap() }
+            .get_or_insert_with(|| VAOContext {type_map: HashMap::new()}) 
+}
+
+
+pub fn bind_vertex_array_object<V: VertexDef + 'static>() -> u32 {
+
+    let mut map = get_static_vao_context();
+
+    if let Some(val) = map.get_vao_id::<V>() {
+        GL!(gl::BindVertexArray(val));
+        apply_attributes_to_bound_buffer(&V::get_attributes());
+        val
+    }
+    else {
+        let mut id = 0;
+        GL!(gl::GenVertexArrays(1, &mut id));
+        GL!(gl::BindVertexArray(id));
+
+        apply_attributes_to_bound_buffer(&V::get_attributes());
+
+        map.insert::<V>(id);
+        id
+    }
+}
+
+pub fn unbind_vertex_array_object() {
+    GL!(gl::BindVertexArray(0))
+}
+
+pub fn delete_vertex_array_object_by_id(id: u32) {
+    let map = get_static_vao_context();
+    if map.remove_by_id(id) {
+        GL!(gl::DeleteVertexArrays(1, &id));
     }
 }
 

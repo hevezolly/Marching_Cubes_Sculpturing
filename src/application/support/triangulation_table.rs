@@ -1,6 +1,11 @@
-use core::buffers::buffer::{BoundBufferContext, Buffer, ShaderStorageBuffer, Usage, UsageFrequency, UsagePattern};
+use core::buffers::buffer::{Buffer, Usage, UsageFrequency, UsagePattern};
+use std::sync::Mutex;
 
-const TRI_TABLE: [[i32; 16];256] = [
+use glam::{vec3, Vec3};
+
+use crate::algorithms::Triangle;
+
+pub const TRI_TABLE: [[i32; 16];256] = [
 [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
 [0, 8, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
 [0, 1, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
@@ -259,10 +264,46 @@ const TRI_TABLE: [[i32; 16];256] = [
 [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]
 ];
 
-pub fn produce_triangulation_buffer() -> ShaderStorageBuffer {
-    let buffer = ShaderStorageBuffer::new();
-    buffer.bind()
-        .new_data::<[i32; 16]>(&TRI_TABLE, Usage(UsageFrequency::Static, UsagePattern::Copy))
-        .unbind();
-    buffer
+pub fn produce_triangulation_buffer() -> Buffer {
+    Buffer::from_data::<[i32; 16]>(&TRI_TABLE, Usage(UsageFrequency::Static, UsagePattern::Copy))
+}
+
+pub fn static_triangle_buffer<'a>() -> &'a mut Buffer {
+    static mut MAP: Mutex<Option<Buffer>> = Mutex::new(None);
+        
+    unsafe { MAP.get_mut().unwrap() }
+            .get_or_insert_with(|| produce_triangulation_buffer())
+}
+
+fn vertex_pos_by_id(edge_index: i32, cube_center: Vec3, cube_size: Vec3) -> Vec3 {
+    let h = cube_size * 0.5;
+
+    match edge_index {
+        0 => cube_center + vec3(0., -h.y, h.z),
+        1 => cube_center + vec3(h.x, -h.y, 0.),
+        2 => cube_center + vec3(0., -h.y, -h.z),
+        3 => cube_center + vec3(-h.x, -h.y, 0.),
+        4 => cube_center + vec3(0., h.y, h.z),
+        5 => cube_center + vec3(h.x, h.y, 0.),
+        6 => cube_center + vec3(0., h.y, -h.z),
+        7 => cube_center + vec3(-h.x, h.y, 0.),
+        8 => cube_center + vec3(-h.x, 0., h.z),
+        9 => cube_center + vec3(h.x, 0., h.z),
+       10 => cube_center + vec3(h.x, 0., -h.z),
+       11 => cube_center + vec3(-h.x, 0., -h.z),
+        _ => panic!("invalid edge id")
+    }
+}
+
+pub fn triangulate_centers(config_index: u8, cube_center: Vec3, cube_size: Vec3) -> Vec<Triangle> {
+
+    let current_table = TRI_TABLE[config_index as usize];
+
+    (0..16).step_by(3)
+        .take_while(|i| current_table[*i] >= 0)
+        .map(|i| Triangle::new(
+            vertex_pos_by_id(current_table[i+1], cube_center, cube_size),
+            vertex_pos_by_id(current_table[i], cube_center, cube_size),
+            vertex_pos_by_id(current_table[i+2], cube_center, cube_size),
+        )).collect()    
 }

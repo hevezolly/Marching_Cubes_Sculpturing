@@ -10,5 +10,7 @@ edition = "2021"
 egui = "0.25.0"
 egui_glfw_gl = "0.13.1"
 glam = "0.25.0"
+anymap = "0.12.1"
 macros = {path = "macros"}
+num = "0.4.3"
 core = {path = "core"}

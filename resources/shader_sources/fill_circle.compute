@@ -1,6 +1,20 @@
 #version 430 core
 
 layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+// layout(r32f, binding = 0) uniform image2D imgOutput;
+
+// void main() {
+//     vec2 texelCoord = vec2(gl_GlobalInvocationID.xy) / (
+//         vec2(gl_NumWorkGroups.xy) - vec2(1., 1.));
+	
+//     vec3 center = vec3(0.5, 0.5, 0.5);
+
+//     // vec4 value = vec4(1., 0., 0., 0.);
+//     vec4 value = vec4(length(center.xy - texelCoord), 0., 0., 0.);
+	
+//     imageStore(imgOutput, ivec2(gl_GlobalInvocationID.xy), value);
+// }
+
 layout(r32f, binding = 0) uniform image3D imgOutput;
 
 void main() {
@@ -9,6 +23,7 @@ void main() {
 	
     vec3 center = vec3(0.5, 0.5, 0.5);
 
+    // vec4 value = vec4(1., 1., 0., 1.);
     vec4 value = vec4(length(center - texelCoord), 0., 0., 0.);
 	
     imageStore(imgOutput, ivec3(gl_GlobalInvocationID.xyz), value);

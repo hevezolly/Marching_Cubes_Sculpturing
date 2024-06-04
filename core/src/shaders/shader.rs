@@ -12,12 +12,46 @@ pub struct Shader {
 }
 
 pub struct ShaderBuilder {
-    shader_type: types::GLenum
+    shader_type: types::GLenum,
+    defines: Vec<String>
 }
 
 impl ShaderBuilder {
+
+    pub fn define(mut self, def: &str) -> ShaderBuilder {
+        self.define_ref(def);
+        self
+    }
+
+    pub fn define_ref(&mut self, def: &str) {
+        if def.is_empty() {
+            return;
+        }
+        self.defines.push(def.to_owned());
+    }
+
     pub fn from_source(&self, source: &str) -> Result<Shader, ShaderError> {
-        Shader::new(source, self.shader_type)
+        let mut result_source = String::new();
+        for d in &self.defines {
+            result_source += &format!("#define {}\n", d);
+        }
+
+        let version = source.lines().find(|l| l.contains("#version")).ok_or("#version directive missing")?;
+
+        result_source = version.to_owned() + "\n\n" + &result_source;
+        
+        for l in source.lines() {
+            if l.contains("#version") {
+                continue;
+            }
+            result_source += l;
+            result_source += "\n";
+        }
+
+        // dbg!(&result_source);
+
+        // result_source += source;
+        Shader::new(result_source, self.shader_type)
     }
 
     pub fn from_file<P: AsRef<Path>>(&self, path: P) -> Result<Shader, ShaderError> {
@@ -48,15 +82,15 @@ impl Shader {
     }
 
     pub fn fragment() -> ShaderBuilder {
-        ShaderBuilder { shader_type: gl::FRAGMENT_SHADER }
+        ShaderBuilder { shader_type: gl::FRAGMENT_SHADER, defines: Vec::new() }
     }
 
     pub fn vertex() -> ShaderBuilder {
-        ShaderBuilder { shader_type: gl::VERTEX_SHADER }
+        ShaderBuilder { shader_type: gl::VERTEX_SHADER, defines: Vec::new() }
     }
 
     pub fn compute() -> ShaderBuilder {
-        ShaderBuilder { shader_type: gl::COMPUTE_SHADER }
+        ShaderBuilder { shader_type: gl::COMPUTE_SHADER, defines: Vec::new() }
     }
 }
 

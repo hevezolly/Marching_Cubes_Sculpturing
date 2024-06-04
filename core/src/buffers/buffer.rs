@@ -1,78 +1,355 @@
-use std::{ffi::c_void, marker::PhantomData, mem::size_of, ops::Index, ptr::null};
+use std::{collections::{HashMap, HashSet}, ffi::c_void, fmt::Debug, marker::PhantomData, mem::size_of, ops::{Deref, Index}, ptr::null, result, sync::Mutex};
 
-use egui::Context;
-use egui_glfw_gl::gl::{self, types::{GLenum, GLboolean, GLint}};
+use egui_glfw_gl::gl::{self, types::{GLboolean, GLenum, GLint}, BufferData};
 
-use crate::{buffers::vertex_attributes::{apply_attributes_to_bound_buffer, VertexArrayObject}, GL};
+use crate::{buffers::vertex_attributes::{apply_attributes_to_bound_buffer}, GL};
 
-use super::vertex_attributes::{VertexAttrib, GlAttributeType, VertexDef};
+use super::vertex_attributes::{bind_vertex_array_object, unbind_vertex_array_object, GlAttributeType, VertexAttrib, VertexDef};
 
-
-pub trait BoundBufferContext<'a, B: Buffer> {
-    fn new(buffer: &'a B) -> Self;
-    fn unbind(self);
+struct BuffersContext {
+    bounds_map: BoundMap,
+    vertex_buffer_to_vao: HashMap<u32, u32>
 }
 
-pub trait Buffer: Sized {
-    type Context<'a>: BoundBufferContext<'a, Self> where Self: 'a;
+struct BoundMap([Option<u32>;14]);
 
-    fn id(&self) -> u32;
-    fn buffer_type(&self) -> GLenum;
-
-    fn unbind(&self) {
-        GL!(gl::BindBuffer(self.buffer_type(), 0));
-    } 
-
-    fn bind<'a>(&'a self) -> Self::Context<'a> {
-        GL!(gl::BindBuffer(self.buffer_type(), self.id()));
-        self.already_bound()
+impl BoundMap {
+    fn new() -> BoundMap {
+        BoundMap([None;14])
     }
 
-    fn already_bound<'a>(&'a self) -> Self::Context<'a> {
-        Self::Context::new(self)
+    fn id_of_target(target: GLenum) -> usize {
+        match target {
+            gl::ARRAY_BUFFER => 0,	
+            gl::ATOMIC_COUNTER_BUFFER => 1,	
+            gl::COPY_READ_BUFFER => 2,	
+            gl::COPY_WRITE_BUFFER => 3,	
+            gl::DISPATCH_INDIRECT_BUFFER => 4,
+            gl::DRAW_INDIRECT_BUFFER => 5,	
+            gl::ELEMENT_ARRAY_BUFFER => 6,	
+            gl::PIXEL_PACK_BUFFER => 7,	
+            gl::PIXEL_UNPACK_BUFFER => 8,	
+            gl::QUERY_BUFFER => 9,	
+            gl::SHADER_STORAGE_BUFFER => 10,
+            gl::TEXTURE_BUFFER => 11,	
+            gl::TRANSFORM_FEEDBACK_BUFFER => 12,	
+            gl::UNIFORM_BUFFER => 13,
+            _ => panic!("Unsupported buffer target")
+        }
     }
 
-    fn create_from_existing(other_id: u32) -> Self;
+    fn target_by_index(id: usize) -> GLenum {
+        match id {
+            0 => gl::ARRAY_BUFFER,	
+            1 => gl::ATOMIC_COUNTER_BUFFER,	
+            2 => gl::COPY_READ_BUFFER,	
+            3 => gl::COPY_WRITE_BUFFER,	
+            4 => gl::DISPATCH_INDIRECT_BUFFER,
+            5 => gl::DRAW_INDIRECT_BUFFER,	
+            6 => gl::ELEMENT_ARRAY_BUFFER,	
+            7 => gl::PIXEL_PACK_BUFFER,	
+            8 => gl::PIXEL_UNPACK_BUFFER,	
+            9 => gl::QUERY_BUFFER,	
+            10 => gl::SHADER_STORAGE_BUFFER,
+            11 => gl::TEXTURE_BUFFER,	
+            12 => gl::TRANSFORM_FEEDBACK_BUFFER,	
+            13 => gl::UNIFORM_BUFFER,
+            _ => panic!("Unsupported buffer target")
+        }
+    }
 
-    fn rebind<Other: Buffer>(self) -> Other {
-        Other::create_from_existing(self.id())
+    fn get_bound_id(&self, target: GLenum) -> Option<u32> {
+        self.0[BoundMap::id_of_target(target)]
+    }
+
+    fn insert(&mut self, id: u32, target: GLenum) -> Option<u32> {
+        let key = BoundMap::id_of_target(target);
+        let prev = self.0[key];
+        self.0[key] = Some(id);
+        prev
+    }
+
+    fn remove(&mut self, target: GLenum) -> Option<u32> {
+        let key = BoundMap::id_of_target(target);
+        let prev = self.0[key];
+        self.0[key] = None;
+        prev
+    }
+
+    fn target_by_id(&self, id: u32) -> Option<GLenum> {
+        self.0.iter().enumerate()
+            .find(|(_, s)| s.is_some_and(|v| v == id))
+            .unzip().0.map(BoundMap::target_by_index)
     }
 }
 
-pub struct DefaultBoundBufferContext<'a, B: Buffer> {
-    buffer: &'a B
+
+
+impl BuffersContext {
+    fn try_bind(&mut self, id: u32, target: GLenum) {
+        match self.bound_target_by_id(id) {
+            Some(v) if v == target => (),
+            _ => {
+                GL!(gl::BindBuffer(target, id));
+                self.bounds_map.insert(id, target);
+            },
+        };
+    }
+
+    fn try_bind_vertex<V: VertexDef + 'static>(&mut self, id: u32) {
+        self.try_bind(id, gl::ARRAY_BUFFER);
+        let bound_vao = bind_vertex_array_object::<V>();
+        self.vertex_buffer_to_vao.insert(id, bound_vao);
+    }
+
+    fn try_unbind(&mut self, id: u32) {
+        if let Some(bound_target) = self.bound_target_by_id(id) {
+            self.bounds_map.remove(bound_target);
+            GL!(gl::BindBuffer(bound_target, 0));
+        }
+        
+        if let Some(_) = self.vertex_buffer_to_vao.remove(&id) {
+            unbind_vertex_array_object()
+        }
+    }
+
+    fn bound_target_by_id(&self, id: u32) -> Option<GLenum> {
+        self.bounds_map.target_by_id(id)
+    }
 }
 
-impl<'a, B: Buffer> BoundBufferContext<'a, B> for DefaultBoundBufferContext<'a, B>  {
-    fn new(buffer: &'a B) -> Self {
-        DefaultBoundBufferContext { buffer }
+fn get_static_context<'a>() -> &'a mut BuffersContext {
+    static mut MAP: Mutex<Option<BuffersContext>> = Mutex::new(None);
+
+    unsafe { MAP.get_mut().unwrap() }
+            .get_or_insert_with(|| BuffersContext { bounds_map: BoundMap::new(), vertex_buffer_to_vao: HashMap::new() }) 
+}
+
+#[derive(Debug)]
+pub struct Buffer {
+    id: u32
+}
+
+pub trait BufferDataInterface<Data: Sized> {
+    fn rewrite_empty(&mut self, elements_count: usize, hint: Usage) {
+        let size = (elements_count * size_of::<Data>()) as isize;
+        self.rewrite_data_by_pointer(null(), size, hint)
     }
 
-    fn unbind(self) {
-        self.buffer.unbind()
+    fn read_data(&self, offset: usize, destination: &mut [Data]);
+
+    fn read_data_from_start(&self, destination: &mut [Data]) {
+        self.read_data(0, destination)
+    }
+
+    fn size_in_bytes(&self) -> usize;
+    
+    fn len(&self) -> usize {
+        self.size_in_bytes() / size_of::<Data>()
+    }
+
+    fn get_data_slice(&self, offset: usize, count: usize) -> Vec<Data> {
+        assert!(offset + count <= self.len());
+        let mut out = Vec::<Data>::with_capacity(count);
+        unsafe {
+            out.set_len(count);
+        }
+        self.read_data(offset, &mut out);
+        out
+    }
+
+    fn get_data_slice_from_start(&self, count: usize) -> Vec<Data> { self.get_data_slice(0, count) }
+    fn get_data_slice_to_end(&self, offset: usize) -> Vec<Data> {self.get_data_slice(offset, self.len() - offset)}
+    fn get_all_data(&self) -> Vec<Data> {self.get_data_slice(0, self.len())}
+
+    fn rewrite_data_by_pointer(&mut self, data: *const c_void, size: isize, hint: Usage);
+    fn update_data(&mut self, offset: usize, data: &[Data]);
+
+    fn rewrite_data(&mut self, data: &[Data], hint: Usage) {
+        let size = (data.len() * size_of::<Data>()) as isize;
+        self.rewrite_data_by_pointer(data.as_ptr() as *const c_void, size, hint)
     }
 }
 
-impl<'a, B: Buffer> DefaultBoundBufferContext<'a, B> {
-    pub fn new_data<Data: Sized>(self, data: &[Data], hint: Usage) -> Self {
-        new_data(self.buffer.buffer_type(), data, hint);
-        self
+impl Buffer {
+    pub fn create_uninitialized() -> Buffer {
+        let mut id: u32 = 0;
+        GL!(gl::GenBuffers(1, &mut id));
+        Buffer { id }
     }
 
-    pub fn read_to<Data: Sized>(self, destination: &mut [Data], offset: usize) -> Self {
-        get_data(self.buffer.buffer_type(), offset, destination);
-        self
+    pub fn empty<Data: Sized>(elements_count: usize, hint: Usage) -> Buffer {
+        let mut buffer = Buffer::create_uninitialized();
+        buffer.rewrite_empty::<Data>(elements_count, hint);
+        buffer
     }
 
-    pub fn read_from_start_to<Data: Sized>(self, destination: &mut [Data]) -> Self {
-        self.read_to(destination, 0)
+    pub fn from_data<Data: Sized>(data: &[Data], hint: Usage) -> Buffer {
+        let mut buffer = Buffer::create_uninitialized();
+        buffer.rewrite_data(data, hint);
+        buffer
+    }
+
+    pub fn unbind(&self) {
+        get_static_context().try_unbind(self.id)
+    }
+
+    pub fn bind(&self, target: GLenum) {
+        get_static_context().try_bind(self.id, target);
+    }
+
+    pub fn bind_as_index(&self) {
+        get_static_context().try_bind(self.id(), gl::ELEMENT_ARRAY_BUFFER);
+    }
+
+    pub fn bind_as_vertex<V: VertexDef + 'static>(&self) {
+        get_static_context().try_bind_vertex::<V>(self.id);
+    }
+
+    pub fn rewrite_empty<Data: Sized>(&mut self, elements_count: usize, hint: Usage) {
+        BufferDataInterface::<Data>::rewrite_empty(self, elements_count, hint)
+    }
+
+    pub fn get_all_data<Data: Sized>(&self) -> Vec<Data> {
+        BufferDataInterface::<Data>::get_all_data(self)
     }
     
-    pub fn empty<Data: Sized>(self, elements_count: usize, hint: Usage) -> Self {
-        empty::<Data>(self.buffer.buffer_type(), elements_count, hint);
+    pub fn id(&self) -> u32 {
+        self.id
+    }
+
+    pub fn delete(&mut self) {
+        self.unbind();
+        GL!(gl::DeleteBuffers(1, &self.id()));
+    } 
+}
+
+impl AsRef<Buffer> for Buffer {
+    fn as_ref(&self) -> &Buffer {
         self
     }
 }
+
+impl<Data: Sized> BufferDataInterface<Data> for Buffer {
+    fn read_data(&self, offset: usize, destination: &mut [Data]) {
+
+        let byte_offset = (offset * size_of::<Data>()) as isize;
+        let byte_size = (destination.len() * size_of::<Data>()) as isize;
+    
+        GL!(gl::GetNamedBufferSubData(self.id, byte_offset, byte_size, destination.as_mut_ptr() as *mut c_void));
+    }
+    
+    fn rewrite_data_by_pointer(&mut self, data: *const c_void, size: isize, hint: Usage) {
+        GL!(gl::NamedBufferData(
+            self.id, 
+            size,
+            data, 
+            hint.gl_usage()));
+    }
+    
+    fn size_in_bytes(&self) -> usize {
+        let mut size_bytes = 0;
+        GL!(gl::GetNamedBufferParameteriv(self.id, gl::BUFFER_SIZE, &mut size_bytes));
+        size_bytes as usize
+    }
+    
+    fn update_data(&mut self, offset: usize, data: &[Data]) {
+        GL!(gl::NamedBufferSubData(self.id, offset as isize, (data.len() * size_of::<Data>()) as isize, data.as_ptr() as *const c_void));
+    }
+}
+
+// impl Drop for Buffer {
+//     fn drop(&mut self) {
+//         self.unbind();
+//         GL!(gl::DeleteBuffers(1, &self.id()));
+//     }
+// }
+
+pub struct VertexBuffer<V: VertexDef + Sized + 'static> {
+    buffer: Buffer,
+    phantom: PhantomData<V>
+}
+
+impl<V: VertexDef + Sized + 'static> VertexBuffer<V> {
+    pub fn create_uninitialized() -> VertexBuffer<V> {
+        VertexBuffer { buffer: Buffer::create_uninitialized(), phantom: PhantomData }
+    }
+
+    pub fn empty(elements_count: usize, hint: Usage) -> VertexBuffer<V> {
+        let buffer = Buffer::empty::<V>(elements_count, hint);
+        VertexBuffer { buffer, phantom: PhantomData }
+    }
+
+    pub fn from_data(data: &[V], hint: Usage) -> VertexBuffer<V> {
+        let buffer = Buffer::from_data(data, hint);
+        VertexBuffer { buffer: buffer, phantom: PhantomData }
+    }
+
+    pub fn unbind(&mut self) {
+        self.buffer.unbind()
+    }
+
+    pub fn bind(&mut self) {
+        self.buffer.bind_as_vertex::<V>()
+    }
+
+    pub fn rewrite_empty(&mut self, elements_count: usize, hint: Usage) {
+        self.buffer.rewrite_empty::<V>(elements_count, hint)
+    }
+
+    pub fn read_data(&self, offset: usize, destination: &mut [V]) {
+        self.buffer.read_data(offset, destination)
+    }
+
+    pub fn read_data_from_start(&self, destination: &mut [V]) {
+        self.buffer.read_data_from_start(destination)
+    }
+
+    pub fn rewrite_data(&mut self, data: &[V], hint: Usage) {
+        self.buffer.rewrite_data(data, hint)
+    }
+    
+    pub fn id(&self) -> u32 {
+        self.buffer.id()
+    }
+    
+    pub fn buffer(&self) -> &Buffer {
+        &self.buffer
+    }
+}
+
+impl<V: VertexDef + Sized + 'static> AsRef<Buffer> for VertexBuffer<V> {
+    fn as_ref(&self) -> &Buffer {
+        self.buffer()
+    }
+}
+
+impl<V: VertexDef + Sized + 'static> BufferDataInterface<V> for VertexBuffer<V> {
+    fn rewrite_empty(&mut self, elements_count: usize, hint: Usage) {
+        self.buffer.rewrite_empty::<V>(elements_count, hint)
+    }
+
+    fn read_data(&self, offset: usize, destination: &mut [V]) {
+        self.buffer.read_data(offset, destination)
+    }
+
+    fn rewrite_data(&mut self, data: &[V], hint: Usage) {
+        self.buffer.rewrite_data(data, hint)
+    }
+    
+    fn rewrite_data_by_pointer(&mut self, data: *const c_void, size: isize, hint: Usage) {
+        BufferDataInterface::<V>::rewrite_data_by_pointer(&mut self.buffer, data, size, hint)
+    }
+    
+    fn size_in_bytes(&self) -> usize {
+        BufferDataInterface::<V>::len(self.buffer())
+    }
+    
+    fn update_data(&mut self, offset: usize, data: &[V]) {
+        BufferDataInterface::<V>::update_data(&mut self.buffer, offset, data);
+    }
+}
+
 
 #[derive(Debug, Clone, Copy)]
 pub enum UsageFrequency {
@@ -102,7 +379,7 @@ pub enum UsagePattern {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Usage(pub UsageFrequency, pub UsagePattern);
+ pub struct Usage(pub UsageFrequency, pub UsagePattern);
 
 impl Usage {
     pub fn gl_usage(&self) -> u32 {
@@ -131,154 +408,3 @@ impl Usage {
         Usage(UsageFrequency::Dynamic, UsagePattern::Copy)
     }
 }
-
-pub struct VertexBuffer<V: VertexDef + Send + Sync + 'static> {
-    id: u32,
-    constraint: PhantomData<V>
-}
-
-pub struct VertexBufferBoundContext<'a, V: VertexDef + Send + Sync + 'static> {
-    buffer: &'a VertexBuffer<V>
-}
-
-
-
-impl<'a, V: VertexDef + Send + Sync + 'static> BoundBufferContext<'a, VertexBuffer<V>> for VertexBufferBoundContext<'a, V> {
-    
-    fn new(buffer: &'a VertexBuffer<V>) -> Self {
-        VertexBufferBoundContext { buffer }
-    }
-
-    fn unbind(self) {
-        self.buffer.unbind()
-    }
-}
-
-impl<'a, V: VertexDef + Send + Sync + 'static> VertexBufferBoundContext<'a, V> {
-    pub fn new_data(self, data: &[V], hint: Usage) -> Self {
-        new_data(self.buffer.buffer_type(), data, hint);
-        self
-    }
-
-    pub fn empty(self, elements_count: usize, hint: Usage) -> Self {
-        empty::<V>(self.buffer.buffer_type(), elements_count, hint);
-        self
-    }
-
-    pub fn read_to(self, destination: &mut [V], offset: usize) -> Self {
-        get_data(self.buffer.buffer_type(), offset, destination);
-        self
-    }
-
-    pub fn read_from_start_to(self, destination: &mut [V]) -> Self {
-        self.read_to(destination, 0)
-    }
-}
-
-impl<V: VertexDef + Send + Sync + 'static> Buffer for VertexBuffer<V> {
-    type Context<'a> = VertexBufferBoundContext<'a, V> where Self: 'a;
-
-    fn bind<'a>(&'a self) -> Self::Context<'a> {
-        GL!(gl::BindBuffer(self.buffer_type(), self.id()));
-        VertexArrayObject::<V>::bind();
-        Self::Context::new(self)
-    }
-
-    fn unbind(&self) {
-        VertexArrayObject::<V>::unbind();
-        GL!(gl::BindBuffer(self.buffer_type(), 0));
-    }
-
-    fn id(&self) -> u32 {
-        self.id
-    }
-
-    fn buffer_type(&self) -> GLenum {
-        gl::ARRAY_BUFFER
-    }
-
-    fn create_from_existing(id: u32) -> Self {
-        VertexBuffer { id, constraint: PhantomData }
-    }
-}
-
-impl<V: VertexDef + Send + Sync + 'static> VertexBuffer<V> {
-
-    pub fn new() -> VertexBuffer<V> {
-        create_buffer()
-    }
-}
-
-impl<V: VertexDef + Send + Sync + 'static> Drop for VertexBuffer<V> {
-    fn drop(&mut self) {
-        drop_buffer(self);
-    }
-}
-
-pub fn create_buffer<B: Buffer>() -> B {
-    let mut buffer_id: u32 = 0;
-    GL!(gl::GenBuffers(1, &mut buffer_id));
-    B::create_from_existing(buffer_id)
-}
-
-fn drop_buffer<B: Buffer>(buffer: &B) {
-    buffer.unbind();
-    GL!(gl::DeleteBuffers(1, &buffer.id()));
-}
-
-fn new_data<Data: Sized>(buffer_type: u32, data: &[Data], hint: Usage) {
-    let size = (data.len() * size_of::<Data>()) as isize;
-        GL!(gl::BufferData(
-            buffer_type, 
-            size,
-            data.as_ptr() as *const c_void, 
-            hint.gl_usage()));
-}
-
-fn get_data<Data: Sized>(buffer_type: u32, offset: usize, destination: &mut [Data]) {
-
-    let byte_offset = (offset * size_of::<Data>()) as isize;
-    let byte_size = (destination.len() * size_of::<Data>()) as isize;
-
-    GL!(gl::GetBufferSubData(buffer_type, byte_offset, byte_size, destination.as_mut_ptr() as *mut c_void));
-}
-
-fn empty<Data: Sized>(buffer_type: u32, elements_count: usize, hint: Usage) {
-    let size = (elements_count * size_of::<Data>()) as isize;
-    GL!(gl::BufferData(
-        buffer_type, 
-        size,
-        null(), 
-        hint.gl_usage()));
-}
-
-pub type IndexBuffer = GenericBuffer<{gl::ELEMENT_ARRAY_BUFFER}>;
-pub type ShaderStorageBuffer = GenericBuffer<{gl::SHADER_STORAGE_BUFFER}>;
-pub type DrawIndirectBuffer = GenericBuffer<{gl::DRAW_INDIRECT_BUFFER}>;
-
-pub struct GenericBuffer<const BUFFER_TYPE: u32> {
-    id: u32
-}
-
-impl<const BUFFER_TYPE: u32> Buffer for GenericBuffer<BUFFER_TYPE> {
-    type Context<'a> = DefaultBoundBufferContext<'a, Self> where Self: 'a;
-
-    fn id(&self) -> u32 {
-        self.id
-    }
-
-    fn buffer_type(&self) -> GLenum {
-        BUFFER_TYPE
-    }
-
-    fn create_from_existing(id: u32) -> Self {
-        GenericBuffer { id }
-    }
-}
-
-impl<const BUFFER_TYPE: u32> GenericBuffer<BUFFER_TYPE> {
-    pub fn new() -> Self {
-        create_buffer()
-    }    
-}
-

@@ -1,12 +1,9 @@
-use core::buffers::buffer::BoundBufferContext;
-use core::buffers::buffer::DrawIndirectBuffer;
-use core::buffers::buffer::IndexBuffer;
-use core::buffers::buffer::ShaderStorageBuffer;
+use core::buffers::buffer::BufferDataInterface;
 use core::buffers::buffer::Usage;
 use core::buffers::buffer::UsageFrequency;
 use core::buffers::buffer::UsagePattern;
 use core::buffers::buffer::VertexBuffer;
-use core::buffers::vertex_attributes::VertexArrayObject;
+use core::context::synchronization_context::SynchronizationContext;
 use core::shaders::shader::Shader;
 use core::textures::image_provider::Image;
 use core::textures::image_provider::ImageFormat;
@@ -28,6 +25,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use ::egui::text;
+use egui_glfw_gl::egui::paint::stats;
 use egui_glfw_gl::egui::Color32;
 use egui_glfw_gl::egui::CtxRef;
 use egui_glfw_gl::egui::Pos2;
@@ -48,265 +47,56 @@ use glam::Vec4Swizzles;
 
 use crate::algorithms::camera::Camera;
 use crate::algorithms::camera::perspective::PerspectiveCamera;
-use crate::application::bit_field;
-use crate::application::bit_field::NUM_OF_BITMASK_VALUES;
-use crate::application::triangulation_table::produce_triangulation_buffer;
+use crate::application::support::brush;
+use crate::application::support::brush::circle_bruhs::CircleBrush;
 
-use super::bit_field::BitField;
+use super::chunk::Chunk;
+use super::support::shaders::shaders_loader::ShaderStorage;
 
-
-#[derive(Uniforms)]
-#[for_shaders("resources/shader_sources/display_tex3d.vert", 
-              "resources/shader_sources/display_tex3d.frag")]
-struct ShaderUniforms {
-    view: Mat4,
-    projection: Mat4,
-    image: TextureUnit,
-    slice: f32,
-}
-
-#[derive(Uniforms)]
-#[for_shaders("resources/shader_sources/fill_circle.compute")]
-struct FillTextureUniforms {
-    #[name("imgOutput")]
-    img_output: TextureUnit,
-    // imgOutput: TextureUnit
-}   
-
-#[derive(Uniforms)]
-#[for_shaders("resources/shader_sources/marching_cubes.compute")]
-struct MarchingCubesUniforms {
-    #[name("scalarField")]
-    scalar_field: TextureUnit,
-    origin_offset: Vec3,
-    field_scale: Vec3,
-    num_boxes: IVec3,
-    surface_level: f32,
-}
-
-#[derive(Uniforms)]
-#[for_shaders("resources/shader_sources/display_model.vert", 
-              "resources/shader_sources/display_model.frag")]
-struct ModelDisplayUniform {
-    view: Mat4,
-    projection: Mat4,
-    light_direction: Vec3
-}
-
-
-
-#[repr(C)]
-#[derive(VertexDef)]
-struct DefaultVertex {
-    psition: Vec3,
-    uv: Vec2
-}
-
-#[repr(C)]
-#[derive(VertexDef, Clone)]
-struct ModelVertex {
-    position: Vec3,
-    normal: Vec3
-}
-
-#[repr(C)]
-#[derive(VertexDef, Clone)]
-struct Command {
-    count: u32,
-    primitive_count: u32,
-    first: u32,
-    reserved: u32,
-}
-
-impl Default for Command {
-    fn default() -> Self {
-        Self { count: 0, primitive_count: 1, first: 0, reserved: 0 }
-    }
-}
 pub struct ExecutrionLogick {
-    mode_vertex_buffer: VertexBuffer<ModelVertex>,
-    command_buffer: DrawIndirectBuffer,
+    // command_buffer: Buffer,
     camera: PerspectiveCamera,
-    model_programm: ShaderProgramm,
-    bit_field: BitField,
+    sync_context: SynchronizationContext,
+    programm_storage: ShaderStorage,
+    chunk: Chunk,
     slice: f32,
+    debug: bool,
     // image: Image
     // programm: ShaderProgramm,
 }
 
-pub const NUM_OF_CUBES: IVec3 = IVec3 { x: 32, y: 32, z: 32 };
-
-
-const TEXTURE_DIM: IVec3 = IVec3 { 
-    x: NUM_OF_CUBES.x + 3, 
-    y: NUM_OF_CUBES.y + 3, 
-    z: NUM_OF_CUBES.z + 3 
-};
-
-fn quad() -> (VertexBuffer<DefaultVertex>, IndexBuffer) 
-{
-    let positions = [
-            DefaultVertex { psition: vec3(-1., -1., 1.), uv: vec2(0., 0.) },
-            DefaultVertex { psition: vec3( 1., -1., 1.), uv: vec2(1., 0.) },
-            DefaultVertex { psition: vec3( 1.,  1., 1.), uv: vec2(1., 1.) },
-            DefaultVertex { psition: vec3(-1.,  1., 1.), uv: vec2(0., 1.) },
-        ];
-
-        let indecies = [
-            0, 1, 2, 0, 2, 3u32
-        ];
-
-        let vertex_buffer = VertexBuffer::new();
-        vertex_buffer.bind()
-            .new_data(&positions, Usage::static_draw())
-            .unbind();
-
-        let index_buffer = IndexBuffer::new();
-        index_buffer.bind()
-            .new_data(&indecies, Usage::static_draw())
-            .unbind();
-    (vertex_buffer, index_buffer)
-}
+pub const BLOCKY: bool = false;
+pub const CHUNK_SIZE: i32 = 32;
+pub const NUM_OF_CUBES: IVec3 = IVec3 { x: CHUNK_SIZE, y: CHUNK_SIZE, z: CHUNK_SIZE };
 
 impl ExecutrionLogick {
     pub fn init() -> ExecutrionLogick {
         
-        let mode_vertex_buffer = VertexBuffer::new();
-        mode_vertex_buffer
-            .bind()
-            .empty(
-                (NUM_OF_CUBES.x * NUM_OF_CUBES.y * NUM_OF_CUBES.z * 15) as usize,
-                Usage::dynamic_copy()
-            )
-            .unbind();
-
-        let command_buffer = DrawIndirectBuffer::new();
-        command_buffer
-            .bind()
-            .new_data(&[Command::default()], 
-                Usage::dynamic_copy())
-            .unbind();
-
-        let mut bit_field = BitField::new();
-    
-        let triangulation_buffer = produce_triangulation_buffer();
-
-        // let image = Image::from_file(PathBuf::new()
-        //     .join("resources")
-        //     .join("images")
-        //     .join("free-image.jpg")).unwrap();
-
-        let mut texture = Texture::new_3d()
-            .magnification_filter(FilterMode::Linear)
-            .minification_filter(FilterMode::Linear)
-            .wrap_mode_x(WrapMode::Repeat)
-            .wrap_mode_y(WrapMode::Repeat)
-            .empty(TEXTURE_DIM.x, TEXTURE_DIM.y, TEXTURE_DIM.z, ImageFormat {
-                lod: 0,
-                format: gl::RED,
-                internal_format: gl::R32F,
-                data_type: gl::FLOAT,
-            });
-            // .with_data(&image.to_gl(gl::RGB, gl::UNSIGNED_BYTE));
-
-        let mut compute = ShaderProgramm::new()
-            .attach_shader(Shader::compute()
-                .from_file(PathBuf::new()
-                    .join("resources")
-                    .join("shader_sources")
-                    .join("fill_circle.compute"))
-                .unwrap())
-            .build().unwrap();
-
-
-        texture.bind_image(1, TextureAccess::Write);
-
-        compute.bind().set_uniforms(FillTextureUniforms {
-            img_output: 1.into(),
-        }).unwrap();
-
-        GL!(gl::DispatchCompute((TEXTURE_DIM.x) as u32, 
-            (TEXTURE_DIM.y) as u32, 
-            (TEXTURE_DIM.z) as u32));
-        GL!(gl::MemoryBarrier(gl::SHADER_IMAGE_ACCESS_BARRIER_BIT));
-
-        let model_programm = ShaderProgramm::new()
-            .attach_shader(Shader::vertex()
-                .from_file(PathBuf::new()
-                    .join("resources")
-                    .join("shader_sources")
-                    .join("display_model.vert"))
-                .unwrap())
-            .attach_shader(Shader::fragment()
-                .from_file(PathBuf::new()
-                    .join("resources")
-                    .join("shader_sources")
-                    .join("display_model.frag"))
-                .unwrap())
-            .build().unwrap();
-
-        let mut marching_cubes = ShaderProgramm::new()
-            .attach_shader(Shader::compute()
-                .from_file(PathBuf::new()
-                    .join("resources")
-                    .join("shader_sources")
-                    .join("marching_cubes.compute"))
-                .unwrap())
-            .build().unwrap();
-
-        marching_cubes.bind().set_uniforms(MarchingCubesUniforms { 
-            scalar_field: 1.into(), 
-            origin_offset: Vec3::ZERO, 
-            field_scale: Vec3::ONE / vec3(NUM_OF_CUBES.x as f32, 
-                NUM_OF_CUBES.y as f32,
-                NUM_OF_CUBES.z as f32), 
-            num_boxes: NUM_OF_CUBES, 
-            surface_level: 0.3 }
-        ).unwrap()
-        .set_buffer(&command_buffer, 1)
-        .set_buffer(&mode_vertex_buffer, 2)
-        .set_buffer(&triangulation_buffer, 3)
-        .set_buffer(bit_field.buffer(), 4);
-
-        GL!(gl::DispatchCompute((NUM_OF_CUBES.x) as u32, (NUM_OF_CUBES.y) as u32, (NUM_OF_CUBES.z) as u32));
-        GL!(gl::MemoryBarrier(gl::SHADER_STORAGE_BARRIER_BIT));
-        
-        bit_field.readback();
+        // let vertex_data = model_vertex_buffer.get_all_data();
+        // dbg!(vertex_data);
 
         let camera = PerspectiveCamera::new(90., 0.01, 100.);
+        let sync_context = SynchronizationContext::new();
+        let programm_storage = ShaderStorage::new();
+
+        let mut chunk = Chunk::empty(sync_context.clone(), programm_storage.clone());
+
+        chunk.fill_sphere();
+        chunk.march(true);
 
         ExecutrionLogick { 
             camera, 
             slice: 0.,
-            mode_vertex_buffer,
-            model_programm,
-            command_buffer,
-            bit_field
+            chunk,
+            debug: false,
+            sync_context,
+            programm_storage,
         }
 
     }
 
     pub fn on_frame_end(&mut self) {
 
-    }
-
-    fn draw_model(&mut self) 
-    {
-        self.mode_vertex_buffer.bind();
-
-        self.model_programm.bind().set_uniforms(ModelDisplayUniform {
-            view: self.camera.view_matrix(),
-            projection: self.camera.projection_matrix(),
-            light_direction: vec3(1., 1., -0.5).normalize()
-        }).unwrap();
-
-        // GL!(gl::DrawArrays(gl::TRIANGLES, self.offset * 3, self.draw_count * 3));
-        self.command_buffer.bind();
-        GL!(gl::DrawArraysIndirect(gl::TRIANGLES, (0) as *const c_void));
-
-        self.mode_vertex_buffer.unbind();
-        self.model_programm.unbind();
-        self.command_buffer.unbind();
     }
 
     pub fn draw(&mut self, params: Parameters) {
@@ -317,13 +107,31 @@ impl ExecutrionLogick {
         
         
         self.camera.set_aspect_ratio(params.height as f32 / params.width as f32);
+        
+        if !self.debug {
+            self.chunk.draw(&self.camera);
+        }
+        else {
+            self.chunk.draw_3d_texture(&self.camera, self.slice);
+            self.chunk.draw_debug_vew(&self.camera);
+        }
+        // self.chunk.draw_3d_texture(&self.camera, self.slice);
 
-        // self.draw_quad();
-        self.draw_model();
 
         GL!(gl::Disable(gl::DEPTH_TEST));
     }
 
+    fn draw_point(&self, egui_ctx: &CtxRef, center: Vec3, screen_size: Vec2) {
+        let painter = egui_ctx.debug_painter();
+        let center = vec4(center.x, center.y, center.z, 1.);
+        let center = self.camera.full_matrix() * center;
+        let scale = 100. / center.w;
+        let center = ((center.xy() / center.w) + Vec2::ONE) * 0.5;
+        let center = Pos2::new(center.x * screen_size.x, (1. - center.y) * screen_size.y);
+
+        painter.circle_filled(center, scale, Color32::YELLOW);
+    }
+    
     fn draw_box(&self, 
         egui_ctx: &CtxRef, 
         corner: Vec3, 
@@ -393,11 +201,15 @@ impl ExecutrionLogick {
 
     pub fn draw_ui(&mut self, egui_ctx: &CtxRef, params: Parameters) {
         egui::Window::new("Settings").show(egui_ctx, |ui| {
-            const speed: f32 = 0.1;
+            const speed: f32 = 0.1 * NUM_OF_CUBES.x as f32 / 4.;
 
             let mut fov = self.camera.fov();
             ui.add(egui::Slider::new(&mut fov, 1.0..=179.).text("fov"));
             self.camera.set_fov(fov);
+
+            ui.add(egui::Slider::new(&mut self.slice, 0.0..=1.0).text("slice"));
+
+            ui.checkbox(&mut self.debug, "debug");
 
             if egui_ctx.input().key_pressed(egui::Key::S) {
                 let pos = self.camera.transform.position() + vec3(0., 0., -speed);
@@ -424,9 +236,30 @@ impl ExecutrionLogick {
                 self.camera.transform.set_position(pos);
             }
 
-            // let size = vec2(params.width as f32, params.height as f32) / egui_ctx.pixels_per_point();
-
-            // let scale = Vec3::ONE;
+            
+            if egui_ctx.input().pointer.button_down(egui::PointerButton::Primary) {
+                if let Some(mouse_pos) = egui_ctx.input().pointer.hover_pos() {
+                    let size = vec2(egui_ctx.input().screen_rect.width(), egui_ctx.input().screen_rect.height());
+                    let viewport =  vec2(mouse_pos.x, mouse_pos.y) / size;
+                    let ray = self.camera.viewport_point_to_ray(vec3(viewport.x, 1. - viewport.y, 0.));
+    
+                    let scale = Vec3::ONE;// / NUM_OF_CUBES.as_vec3();
+                    if let Some(position) = self.chunk.raycast(ray) {
+                        let brush = CircleBrush::new(
+                            self.programm_storage.clone(),
+                            position / NUM_OF_CUBES.as_vec3(), 0.1, -0.01, 1.);
+                        self.chunk.apply_brush(&brush);
+                        self.chunk.march(true);
+                        // self.sync_context.force_sync_with(core::context::synchronization_context::AllBarrier);
+                        let start = Instant::now();
+                        GL!(gl::Finish());
+                        dbg!(start.elapsed());
+                        self.draw_point(egui_ctx, position, size);
+                        // self.draw_box(egui_ctx, cord * scale, scale, size, Color32::RED);
+                    }
+                }
+            }
+            
 
             // for x in 0..NUM_OF_CUBES.x {
             //     for y in 0..NUM_OF_CUBES.y {

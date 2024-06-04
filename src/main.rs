@@ -1,12 +1,15 @@
+// #![windows_subsystem = "windows"]
 pub mod application;
 pub mod algorithms;
 
 
+use std::{fs::File, io::Write, panic};
+
 use application::Application;
 
 
-const WIN_WIDTH: u32 = 800;
-const WIN_HEIGHT: u32 = 600;
+const WIN_WIDTH: u32 = 1024;
+const WIN_HEIGHT: u32 = 980;
 
 #[macro_use]
 extern crate macros;
@@ -28,5 +31,4 @@ fn main() {
         
         app.end_frame();
     }
-        
 }
