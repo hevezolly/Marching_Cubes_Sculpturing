@@ -14,7 +14,7 @@ pub enum ShaderType {
 
 pub trait ShaderReference {
     fn defenition() -> ShaderType;
-    fn preprocessors() -> Vec<&'static str> {
+    fn preprocessors() -> Vec<String> {
         vec![]
     }
 }
@@ -30,7 +30,7 @@ impl ShaderStorageBase {
             ShaderType::Compute(path) =>{
                 let mut shader = Shader::compute();
                 for p in T::preprocessors() {
-                    shader.define_ref(p);
+                    shader.define_ref(&p);
                 }
                 ShaderProgramm::new()
                 .attach_shader(shader
@@ -40,11 +40,11 @@ impl ShaderStorageBase {
             ShaderType::Model { vertex, fragment } => {
                 let mut frag = Shader::fragment();
                 for p in T::preprocessors() {
-                    frag.define_ref(p);
+                    frag.define_ref(&p);
                 };
                 let mut vert = Shader::vertex();
                 for p in T::preprocessors() {
-                    vert.define_ref(p);
+                    vert.define_ref(&p);
                 };
                 ShaderProgramm::new()
                     .attach_shader(vert

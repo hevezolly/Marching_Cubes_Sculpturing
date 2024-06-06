@@ -3,18 +3,7 @@ use std::ops::Index;
 
 use glam::IVec3;
 
-use crate::application::app_logick::NUM_OF_CUBES;
-
-
-const fn ceil_div(val: usize, divider: usize) -> usize {
-    let div = val / divider;
-    if val % divider > 0 {
-        div + 1
-    }
-    else {
-        div
-    }
-}
+use crate::application::app_logick::{ceil_div, NUM_OF_CUBES};
 
 pub const NUM_OF_BITMASK_VALUES: usize = ceil_div((NUM_OF_CUBES.x * NUM_OF_CUBES.y * NUM_OF_CUBES.z) as usize, 32);
 

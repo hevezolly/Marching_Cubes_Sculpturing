@@ -4,6 +4,7 @@ pub mod camera;
 pub mod raycast;
 pub mod transform;
 pub mod grid_line_intersection;
+pub mod cordinates;
 
 #[derive(Debug, Clone)]
 pub struct Triangle([Vec3;3]);

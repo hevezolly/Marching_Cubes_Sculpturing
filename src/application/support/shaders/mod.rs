@@ -29,8 +29,8 @@ macro_rules! shader_ref {
                 $def
             }
 
-            fn preprocessors() -> Vec<&'static str> {
-                vec![$($defines),+]
+            fn preprocessors() -> Vec<String> {
+                vec![$(Into::<String>::into($defines)),+]
             }
         }
     };
@@ -38,10 +38,6 @@ macro_rules! shader_ref {
 
 
 shader_ref!(FillCircleProgramm, Compute("resources/shader_sources/fill_circle.compute"));
-
-shader_ref!(MarchingCubeProgramm, Compute("resources/shader_sources/marching_cubes.compute"), 
-    if COMPRESS_COLLISION {"COMPRESS_COLLISION"} else {""},
-    if BLOCKY {"BLOCKY"} else {""});
 
 shader_ref!(ModelProgramm, Model { vertex: "resources/shader_sources/display_model.vert", 
                                    fragment: "resources/shader_sources/display_model.frag" });

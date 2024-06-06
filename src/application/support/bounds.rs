@@ -1,4 +1,4 @@
-use std::{cmp::{max, min}, marker::PhantomData, ops::{Add, Div, Mul}, process::Output};
+use std::{cmp::{max, min}, marker::PhantomData, ops::{Add, Div, Mul, Sub}, process::Output};
 
 use glam::{ivec3, vec3, IVec3, Vec3};
 use num::Zero;
@@ -162,6 +162,17 @@ impl<T: Cord3D + CordOps + Copy + Clone + Add<Output = T>> Bounds<T> {
         match self.min_max {
             Some((mi, ma)) => Bounds::min_max(mi + offset, ma + offset),
             None => Bounds::empty(),
+        }
+    }
+}
+
+impl<T: Cord3D + CordOps + Copy + Clone + Sub<Output = T>> Bounds<T>
+    where <T as Cord3D>::Value: Zero 
+{
+    pub fn size(&self) -> T {
+        match self.min_max {
+            Some((mi, ma)) => ma - mi,
+            None => T::new(T::Value::zero(), T::Value::zero(), T::Value::zero()),
         }
     }
 }

@@ -4,20 +4,9 @@ use std::ops::Index;
 use egui_glfw_gl::gl;
 use glam::{ivec3, vec3, IVec3, Vec3};
 
-use crate::{algorithms::{camera::Camera, Triangle}, application::{app_logick::NUM_OF_CUBES, chunk::{ModelDisplayUniform, ModelVertex}, support::shaders::ModelProgramm}};
+use crate::{algorithms::{camera::Camera, Triangle}, application::{app_logick::{ceil_div, NUM_OF_CUBES}, chunk::{ModelDisplayUniform, ModelVertex, CHUNK_SCALE_FACTOR}, support::shaders::ModelProgramm}};
 
 use super::{shaders::shaders_loader::ShaderStorage, triangulation_table::{triangulate_centers, TRI_TABLE}};
-
-
-const fn ceil_div(val: usize, divider: usize) -> usize {
-    let div = val / divider;
-    if val % divider > 0 {
-        div + 1
-    }
-    else {
-        div
-    }
-}
 
 pub const COMPRESS_COLLISION: bool = true;
 
@@ -70,7 +59,8 @@ impl CollisionShape {
             self.field[position]
         };
         
-        triangulate_centers(config as u8, index.as_vec3() + Vec3::ONE * 0.5, Vec3::ONE)
+        triangulate_centers(config as u8, (index.as_vec3() + Vec3::ONE * 0.5) * CHUNK_SCALE_FACTOR, 
+            CHUNK_SCALE_FACTOR)
     }
 }
 

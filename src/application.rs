@@ -128,7 +128,16 @@ impl Application {
         self.egui.egui_input_state.input.time = Some(self.start_time.elapsed().as_secs_f64());
         self.egui.egui_ctx.begin_frame(self.egui.egui_input_state.input.take());
         self.egui.egui_input_state.input.pixels_per_point = Some(self.egui.native_pixels_per_point);
+        if let Some(logic) = &mut self.execution_logick {
+            logic.on_frame_begin();
+        }
     }
+
+    pub fn update(&mut self) {
+        if let Some(logic) = &mut self.execution_logick {
+            logic.update(self.egui.egui_ctx.input())
+        }
+    } 
 
     pub fn draw_frame(&mut self) {
         if let Some(logic) = &mut self.execution_logick {

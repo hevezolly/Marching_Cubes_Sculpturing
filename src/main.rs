@@ -24,10 +24,11 @@ fn main() {
     while !app.window.should_close() {
         app.begin_frame();
 
+        app.update();
+        
         app.draw_frame();
         
         app.draw_ui();
-        
         
         app.end_frame();
     }

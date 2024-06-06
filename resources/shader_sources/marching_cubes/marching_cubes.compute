@@ -1,6 +1,10 @@
 #version 430 core
 
-layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+#ifndef DISPATCH_SIZE
+#define DISPATCH_SIZE local_size_x = 1, local_size_y = 1, local_size_z = 1
+#endif
+
+layout (DISPATCH_SIZE) in;
 layout (r32f, binding = 0) uniform image3D scalarField;
 uniform vec3 origin_offset;
 uniform vec3 field_scale;

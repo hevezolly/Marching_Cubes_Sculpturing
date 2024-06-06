@@ -6,14 +6,14 @@ use egui_glfw_gl::gl;
 use glam::{vec3, IVec3, Mat4, Vec3};
 
 
-use crate::{algorithms::{camera::Camera, grid_line_intersection::march_grid_by_ray, raycast::{ray_triangle_intersection, Ray}}, application::support::{shaders::{FillCircleProgramm, MarchingCubeProgramm, ModelProgramm}, triangulation_table::static_triangle_buffer}};
+use crate::{algorithms::{camera::Camera, grid_line_intersection::march_grid_by_ray, raycast::{ray_triangle_intersection, Ray}}, application::{app_logick::BLOCKY, support::{collision_shape::COMPRESS_COLLISION, shaders::{FillCircleProgramm, ModelProgramm}, triangulation_table::static_triangle_buffer}}, shader_ref};
 
-use super::{app_logick::NUM_OF_CUBES, support::{bit_field::BitField, brush::Brush, collision_shape::{CollisionShape, CollisionShapeDebugView}, shaders::{shaders_loader::ShaderStorage, QuadProgramm}, simple_quad::SimpleQuad}};
+use super::{app_logick::NUM_OF_CUBES, support::{bit_field::BitField, brush::Brush, collision_shape::{CollisionShape, CollisionShapeDebugView}, shaders::{shaders_loader::{ShaderStorage, ShaderType}, QuadProgramm}, simple_quad::SimpleQuad}};
 
 
 
 #[derive(Uniforms)]
-#[for_shaders("resources/shader_sources/marching_cubes.compute")]
+#[for_shaders("resources/shader_sources/marching_cubes/marching_cubes.compute")]
 struct MarchingCubesUniforms {
     #[name("scalarField")]
     scalar_field: TextureUnit,
@@ -53,6 +53,8 @@ impl Default for Command {
     }
 }
 
+
+
 #[repr(C)]
 #[derive(Debug, VertexDef, Clone)]
 struct Command {
@@ -83,11 +85,40 @@ const TEXTURE_DIM: IVec3 = IVec3 {
     z: NUM_OF_CUBES.z + 3 
 };
 
+const WORK_GROUP: IVec3 = IVec3 {
+    x: 8,
+    y: 8,
+    z: 8,
+};
+
+pub const CHUNK_SCALE_FACTOR: Vec3 = vec3(1. / (NUM_OF_CUBES.x as f32), 
+    1. / (NUM_OF_CUBES.y as f32),
+    1. / (NUM_OF_CUBES.z as f32));
+
+shader_ref!(MarchingCubeProgramm, ShaderType::Compute("resources/shader_sources/marching_cubes/marching_cubes.compute"), 
+    if COMPRESS_COLLISION {"COMPRESS_COLLISION"} else {""},
+    if BLOCKY {"BLOCKY"} else {""},
+    format!("DISPATCH_SIZE local_size_x = {}, local_size_y = {}, local_size_z = {}",
+    WORK_GROUP.x,
+    WORK_GROUP.y,
+    WORK_GROUP.z));
+
+fn dispatch_compute_for(total_size: IVec3) {
+    let dispatch = total_size.as_vec3() / WORK_GROUP.as_vec3();
+    let res = dispatch.ceil();
+    GL!(gl::DispatchCompute((res.x) as u32, (res.y) as u32, (res.z) as u32));
+
+}
+
 impl Chunk {
     pub fn empty(sync_context: SynchronizationContext, programm_storage: ShaderStorage) -> Chunk {
         let model_vertex_buffer = VertexBuffer::empty(
             (NUM_OF_CUBES.x * NUM_OF_CUBES.y * NUM_OF_CUBES.z * 15) as usize,
             Usage::dynamic_copy());
+
+        let mut max_compute = 0;
+        GL!(gl::GetIntegerv(gl::MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &mut max_compute));
+        dbg!(max_compute);
 
         let bit_field = BitField::new();
         let collision_field = CollisionShape::new();
@@ -178,10 +209,7 @@ impl Chunk {
         .bind().set_uniforms(MarchingCubesUniforms { 
             scalar_field: 1.into(), 
             origin_offset: Vec3::ZERO, 
-            field_scale: Vec3::ONE,
-                // / vec3(NUM_OF_CUBES.x as f32, 
-                // NUM_OF_CUBES.y as f32,
-                // NUM_OF_CUBES.z as f32), 
+            field_scale: CHUNK_SCALE_FACTOR, 
             num_boxes: NUM_OF_CUBES, 
             surface_level: 0.3 }
         ).unwrap()
@@ -193,7 +221,8 @@ impl Chunk {
         
         let c = self.sync_context.dirty() | ShaderStorageBarrier | CommandBarrier;
         self.is_bitfield_dirty = update;
-        GL!(gl::DispatchCompute((NUM_OF_CUBES.x) as u32, (NUM_OF_CUBES.y) as u32, (NUM_OF_CUBES.z) as u32));
+        dispatch_compute_for(NUM_OF_CUBES);
+        // GL!(gl::DispatchCompute((NUM_OF_CUBES.x) as u32, (NUM_OF_CUBES.y) as u32, (NUM_OF_CUBES.z) as u32));
         c.apply();
 
         self.sync_context.force_sync_with(AllBarrier);
@@ -259,6 +288,7 @@ impl Chunk {
         // self.swap_buffer.unbind();
     }
 
+    // pub fn raycast(&mut self, ray: Ray, draw: impl Fn(Vec3, Vec3)) -> Option<Vec3> {
     pub fn raycast(&mut self, ray: Ray) -> Option<Vec3> {
 
         if self.is_bitfield_dirty {
@@ -270,7 +300,10 @@ impl Chunk {
 
 
         for c in march_grid_by_ray(
-            ray.origin, ray.direction, IVec3::ZERO, NUM_OF_CUBES - IVec3::ONE)? {
+            ray.origin / CHUNK_SCALE_FACTOR, ray.direction / CHUNK_SCALE_FACTOR, IVec3::ZERO, NUM_OF_CUBES - IVec3::ONE)? {
+            let center = (c.as_vec3() + Vec3::ONE * 0.5) * CHUNK_SCALE_FACTOR;
+            let size = CHUNK_SCALE_FACTOR;
+            // draw(center, size);
             for triangle in self.collision_field.get(c) {
                 let intersection: Option<Vec3> = ray_triangle_intersection(ray, &triangle);
                 if intersection.is_some() {
