@@ -4,4 +4,5 @@ pub mod triangulation_table;
 pub mod bounds;
 pub mod brush;
 pub mod shaders;
-pub mod collision_shape;
+pub mod debugger;
+pub mod camera_ref;

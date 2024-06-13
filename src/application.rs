@@ -10,7 +10,7 @@ use egui_glfw_gl::egui::{self, Rect, Pos2, vec2};
 use self::app_logick::{ExecutrionLogick, Parameters};
 
 mod app_logick;
-mod chunk;
+mod cunks;
 mod support;
 
 pub struct EguiContext {
@@ -135,7 +135,7 @@ impl Application {
 
     pub fn update(&mut self) {
         if let Some(logic) = &mut self.execution_logick {
-            logic.update(self.egui.egui_ctx.input())
+            logic.update(&self.egui.egui_ctx)
         }
     } 
 

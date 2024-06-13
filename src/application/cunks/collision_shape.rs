@@ -2,11 +2,12 @@ use core::{buffers::buffer::{Buffer, BufferDataInterface, Usage, VertexBuffer}, 
 use std::ops::Index;
 
 use egui_glfw_gl::gl;
-use glam::{ivec3, vec3, IVec3, Vec3};
+use glam::{ivec3, vec3, IVec3, Mat4, Vec3};
 
-use crate::{algorithms::{camera::Camera, Triangle}, application::{app_logick::{ceil_div, NUM_OF_CUBES}, chunk::{ModelDisplayUniform, ModelVertex, CHUNK_SCALE_FACTOR}, support::shaders::ModelProgramm}};
+use crate::{algorithms::{camera::Camera, transform::Transform, Triangle}, application::{app_logick::{ceil_div, NUM_OF_CUBES}, support::{shaders::{shaders_loader::ShaderStorage, ModelProgramm}, triangulation_table::triangulate_centers}}};
 
-use super::{shaders::shaders_loader::ShaderStorage, triangulation_table::{triangulate_centers, TRI_TABLE}};
+use super::{DrawParameters, ModelVertex};
+
 
 pub const COMPRESS_COLLISION: bool = true;
 
@@ -15,6 +16,17 @@ pub const NUM_OF_BLOCKS: usize = if !COMPRESS_COLLISION {
 } else {
     ceil_div((NUM_OF_CUBES.x * NUM_OF_CUBES.y * NUM_OF_CUBES.z) as usize, 4)
 };
+
+
+#[derive(Uniforms)]
+#[for_shaders("resources/shader_sources/display_model.vert", 
+              "resources/shader_sources/display_model.frag")]
+pub struct ModelDisplayUniform {
+    pub model: Mat4,
+    pub view: Mat4,
+    pub projection: Mat4,
+    pub light_direction: Vec3
+}
 
 #[derive(Debug)]
 pub struct CollisionShape {
@@ -59,8 +71,7 @@ impl CollisionShape {
             self.field[position]
         };
         
-        triangulate_centers(config as u8, (index.as_vec3() + Vec3::ONE * 0.5) * CHUNK_SCALE_FACTOR, 
-            CHUNK_SCALE_FACTOR)
+        triangulate_centers(config as u8, (index.as_vec3() + Vec3::ONE * 0.5), Vec3::ONE)
     }
 }
 
@@ -72,7 +83,8 @@ pub struct CollisionShapeDebugView {
 
 impl CollisionShapeDebugView {
     pub fn new(shader_storage: ShaderStorage) -> CollisionShapeDebugView {
-        let buffer = VertexBuffer::create_uninitialized();
+        let buffer = VertexBuffer::empty(
+            (NUM_OF_CUBES.x * NUM_OF_CUBES.y * NUM_OF_CUBES.z * 15) as usize, Usage::dynamic_copy());
         let vertex_count = 0;
 
         CollisionShapeDebugView { buffer, vertex_count, shader_storage }
@@ -104,18 +116,19 @@ impl CollisionShapeDebugView {
             }
         };
 
-        self.buffer.rewrite_data(&result_buffer, Usage::static_draw());
+        self.buffer.update_data(0, &result_buffer);
         self.vertex_count = result_buffer.len() as i32;
     }
 
-    pub fn draw(&mut self, camera: &impl Camera) {
+    pub fn draw(&mut self, params: DrawParameters<'_>) {
         
         self.buffer.bind();
 
         self.shader_storage.access().get::<ModelProgramm>().unwrap()
         .bind().set_uniforms(ModelDisplayUniform {
-            view: camera.view_matrix(),
-            projection: camera.projection_matrix(),
+            model: *params.model,
+            view: params.camera.view_matrix(),
+            projection: params.camera.projection_matrix(),
             light_direction: vec3(1., 1., -0.5).normalize()
         }).unwrap();
 

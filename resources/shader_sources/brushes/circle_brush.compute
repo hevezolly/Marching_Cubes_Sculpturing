@@ -7,14 +7,13 @@
 layout(DISPATCH_SIZE) in;
 
 layout(r32f, binding = 0) uniform image3D source;
-layout(r32f, binding = 1) uniform image3D destination;
 
 uniform mat4 transform;
-// uniform ivec3 start_cell;
+uniform ivec3 start_cell;
 uniform vec2 falloff_strength;
 
 void main() {
-    ivec3 id = ivec3(gl_GlobalInvocationID.xyz);
+    ivec3 id = ivec3(gl_GlobalInvocationID.xyz) + start_cell;
     ivec3 im_size = ivec3(imageSize(source).xyz);
     if (id.x >= im_size.x || 
         id.y >= im_size.y || 
@@ -29,16 +28,16 @@ void main() {
 
     float len = length(uvw);
 
-    vec4 value_to_write = imageLoad(source, id);
-
-    if (uvw.x <= 1. && uvw.x >= -1. &&
-        uvw.y <= 1. && uvw.y >= -1. &&
-        uvw.z <= 1. && uvw.z >= -1 &&
-        len <= 1.) {
-        float add = falloff_strength.y * pow(1. - len, falloff_strength.x);
-        // value_to_write = vec4(clamp(1., 0., 1.), 0., 0., 0.);
-        value_to_write = vec4(clamp(value_to_write.r + add, 0., 1.), 0., 0., 0.);
+    if (uvw.x >= 1. || uvw.x <= -1. ||
+        uvw.y >= 1. || uvw.y <= -1. ||
+        uvw.z >= 1. || uvw.z <= -1 ||
+        len >= 1.) {
+        return;
     }
 
-    imageStore(destination, id, value_to_write);
+
+    float add = falloff_strength.y * pow(1. - len, falloff_strength.x);
+    vec4 value_to_write = imageLoad(source, id);
+    value_to_write = vec4(clamp(value_to_write.r + add, 0., 1.), 0., 0., 0.);
+    imageStore(source, id, value_to_write);
 }

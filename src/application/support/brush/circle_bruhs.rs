@@ -6,7 +6,7 @@ use glam::{ivec3, vec2, IVec3, Mat4, Quat, Vec2, Vec3};
 
 use crate::{algorithms::{cordinates::RoundableToIVec3, transform}, application::support::{bounds::Bounds, brush::WORK_GROUP_FOR_BRUSH, shaders::shaders_loader::{ShaderStorage, ShaderType}}, shader_ref};
 
-use super::{dispatch_compute_for, Brush};
+use super::{chunk_size_to_texture_size, chunk_to_texture_position, dispatch_compute_for, Brush};
 
 
 shader_ref!(CirckleBrushProgramm, ShaderType::Compute("resources/shader_sources/brushes/circle_brush.compute"),
@@ -19,8 +19,8 @@ shader_ref!(CirckleBrushProgramm, ShaderType::Compute("resources/shader_sources/
 #[for_shaders("resources/shader_sources/brushes/circle_brush.compute")]
 struct CircleBrushUniforms {
     source: TextureUnit,
-    // start_cell: IVec3,
-    destination: TextureUnit,
+    start_cell: IVec3,
+    // destination: TextureUnit,
     transform: Mat4,
     falloff_strength: Vec2
 }
@@ -44,41 +44,31 @@ impl CircleBrush {
     ) -> CircleBrush {
         CircleBrush { center, radius, strength, falloff, shader_storage }
     }
-
-    pub fn clone_at(&self, center: Vec3, radius: f32) -> CircleBrush {
-        let mut clone = self.clone();
-        clone.center = center;
-        clone.radius = radius;
-        clone
-    }
 }
 
 impl Brush for CircleBrush {
-    fn apply(&self, source: &mut Texture, destination: &mut Texture) {
+    fn apply(&self, source: &mut Texture) {
         let tex_dim = source.size();
 
-        // let bounds = self.bounds();
-        // let start_cell = (bounds.min() * tex_dim.as_vec3()).floor_to_ivec();
-        // let dispatch_size = IVec3::min(start_cell + 
-        //     (bounds.size() * tex_dim.as_vec3()).ceil_to_ivec(), tex_dim) - start_cell;
+        let dispatch_bounds = self.texture_space_cords(tex_dim);
 
-        let transform = Mat4::from_scale_rotation_translation(
-            Vec3::ONE * self.radius,
+        let transform = 
+            Mat4::from_scale_rotation_translation(
+            chunk_size_to_texture_size(Vec3::ONE * self.radius, tex_dim),
             Quat::IDENTITY, 
-        self.center).inverse();
-        source.bind_image(2, TextureAccess::Read);
-        destination.bind_image(1, TextureAccess::Write);
+            chunk_to_texture_position(self.center, tex_dim));
+
+        source.bind_image(1, TextureAccess::ReadWrite);
         self.shader_storage.access().get::<CirckleBrushProgramm>().unwrap()
             .bind()
             .set_uniforms(CircleBrushUniforms {
-                source: 2.into(),
-                // start_cell,
-                destination: 1.into(),
-                transform,
+                source: 1.into(),
+                start_cell: dispatch_bounds.min(),
+                transform: transform.inverse(),
                 falloff_strength: vec2(self.falloff, -self.strength),
             }).unwrap();
 
-        dispatch_compute_for(tex_dim);
+        dispatch_compute_for(dispatch_bounds.size());
         // GL!(gl::DispatchCompute(tex_dim.x as u32, tex_dim.y as u32, tex_dim.z as u32));
 
         // source.unbind();
@@ -86,7 +76,15 @@ impl Brush for CircleBrush {
     }
     
     fn bounds(&self) -> crate::application::support::bounds::Bounds<Vec3> {
-        let h_size = Vec3::ONE * self.radius * 0.5;
+        let h_size = Vec3::ONE * self.radius;
         Bounds::min_max(self.center - h_size, self.center + h_size)
+    }
+    
+    fn transformed(&self, offset: Vec3, scale: f32 ) -> Self {
+        Self { center: self.center + offset, 
+               radius: self.radius * scale, 
+               strength: self.strength, 
+               falloff: self.falloff, 
+               shader_storage: self.shader_storage.clone() }
     }
 }

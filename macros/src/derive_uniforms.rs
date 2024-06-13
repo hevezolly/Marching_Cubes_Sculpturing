@@ -40,11 +40,13 @@ fn glsl_type_to_rust_types(glsl_type: &TypeSpecifierNonArray, shader_name: &str)
 
 struct UniformDef {
     name: String,
-    rust_type: proc_macro2::TokenStream
+    rust_type: proc_macro2::TokenStream,
+    optional: bool,
 }
 
 impl UniformDef {
     fn try_from_line(line: &str, shader_name: &str) -> Option<UniformDef> {
+        let optional = line.contains("//!OPTIONAL");
         let declaration = SingleDeclaration::parse(line).ok()?;
         let has_uniform = declaration.ty.qualifier?.qualifiers.0.iter()
             .any(|q| match q {
@@ -65,7 +67,7 @@ impl UniformDef {
         let rust_type = glsl_type_to_rust_types(&uni_type_decl.ty, shader_name);
 
 
-        Some(UniformDef { name, rust_type })
+        Some(UniformDef { name, rust_type, optional })
     }
 }
 
@@ -82,7 +84,7 @@ pub fn derive_uniforms_internal(item: TokenStream) -> TokenStream {
 
     let self_type = &parsed_item.ident;
     
-    let (field_names, fied_types): (Vec<_>, Vec<_>) = 
+    let (field_names, field_types): (Vec<_>, Vec<_>) = 
         parsed_item.fields.iter().map(|f| (&f.ident, &f.ty)).unzip();
 
     let uniform_names: Vec<_> = parsed_item.fields.iter()
@@ -110,6 +112,7 @@ pub fn derive_uniforms_internal(item: TokenStream) -> TokenStream {
         let unused_uniforms: Vec<_> = uniforms
             .into_iter()
             .filter(|v| !used_uniforms.contains(&v.name))
+            .filter(|v| !v.optional)
             .map(|v| format!("'{}'", v.name))
             .collect();
         if unused_uniforms.len() != 0 {
@@ -125,8 +128,9 @@ pub fn derive_uniforms_internal(item: TokenStream) -> TokenStream {
             }
             
             fn defenition() -> Vec<String> {
-                #(let compatable = <#fied_types as core::shaders::uniforms::UniformCompatableType>::IS_COMPATABLE;)*
-                #(let alias = <#fied_types as core::OpenglAlias<#uniform_types>>::IS_ALIAS;)*
+                #(let compatable = core::shaders::uniforms::check_uniform_compatable::<#field_types, #uniform_types>();)*
+                // #(let compatable = <#fied_types as core::shaders::uniforms::UniformCompatableType<Target = #uniform_types>>::IS_COMPATABLE;)*
+                // #(let alias = <#fied_types as core::OpenglAlias<#uniform_types>>::IS_ALIAS;)*
                 vec![#(#uniform_names.to_owned(),)*]
             }
         }
@@ -162,7 +166,7 @@ fn get_file_uniforms(parsed_item: &ItemStruct) -> Option<Vec<UniformDef>> {
             let source = fs::read_to_string(path).unwrap();
     
             for uniform in source.lines().filter_map(|l| UniformDef::try_from_line(l, name)) {
-                if let Some(UniformDef { name, rust_type: _ }) = result.iter().find(|f| f.name == uniform.name) {
+                if let Some(UniformDef { name, rust_type: _, optional: _ }) = result.iter().find(|f| f.name == uniform.name) {
                     panic!("uniform '{}' is declared multiple times", name);
                 }
                 result.push(uniform);

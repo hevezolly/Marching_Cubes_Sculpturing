@@ -1,0 +1,51 @@
+#version 430 core
+
+#ifndef DISPATCH_SIZE
+#define DISPATCH_SIZE local_size_x = 1, local_size_y = 1, local_size_z = 1
+#endif
+
+layout (DISPATCH_SIZE) in;
+
+layout(std430, binding = 4) readonly buffer fillCacheLayout {
+    uint indexCache[];
+};
+
+layout(std430, binding = 2) writeonly buffer indexBufferLayout {
+    uint indexBuffer[];
+};
+
+layout(std430, binding = 1) buffer commanBuffer {
+    uint  count;
+    uint  primCount;
+    uint  firstIndex;
+    uint  baseVertex;
+    uint  baseInstance;
+} Command;
+
+uniform ivec3 num_boxes;
+
+int CordToIndex(ivec3 box_coord) {
+    return box_coord.x + 
+        box_coord.y * num_boxes.x + 
+        box_coord.z * num_boxes.y * num_boxes.x;
+}
+
+
+void main() {
+    ivec3 box_coord = ivec3(gl_GlobalInvocationID.xyz);
+    if (box_coord.x >= num_boxes.x || 
+        box_coord.y >= num_boxes.y || 
+        box_coord.z >= num_boxes.z)
+        return;
+
+    int box_index = CordToIndex(box_coord);
+    int vertex_index = box_index * 15;
+
+    uint vertex_count = indexCache[box_index];
+
+    uint write_position = atomicAdd(Command.count, vertex_count);
+
+    for (int i = 0; i < vertex_count; i++) {
+        indexBuffer[write_position + i] = vertex_index + i;
+    }   
+}

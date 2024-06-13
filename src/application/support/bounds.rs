@@ -94,7 +94,7 @@ impl Cord3D for IVec3 {
 }
 
 impl<T: Cord3D + CordOps + Clone + Copy> Bounds<T> {
-    pub fn empty() -> Bounds<T> {
+    pub const fn empty() -> Bounds<T> {
         Bounds { min_max: None }
     }
 
@@ -129,7 +129,7 @@ impl<T: Cord3D + CordOps + Clone + Copy> Bounds<T> {
         b
     }
 
-    pub fn has_values(&self) -> bool {self.min_max.is_some()}
+    pub fn is_empty(&self) -> bool {self.min_max.is_none()}
 
     pub fn contains(&self, cord: T) -> bool {
         match &self.min_max {
@@ -204,7 +204,7 @@ impl Bounds<Vec3> {
 impl Bounds<IVec3> {
     pub fn iterate_cords(&self) -> BoundsIterator {
         if let Some((min, max)) = self.min_max {
-            BoundsIterator { current: min, min, max: max - IVec3::ONE }
+            BoundsIterator { current: min, min, max: max }
         }
         else {
             BoundsIterator { current: ivec3(1, 1, 1), min: IVec3::ZERO, max: IVec3::ZERO }
@@ -222,16 +222,17 @@ impl Iterator for BoundsIterator {
     type Item = IVec3;
 
     fn next(&mut self) -> Option<Self::Item> {
+
         if self.current.x > self.max.x {return None;}
 
         let result = self.current;
 
-        if self.current.y > self.max.y && self.current.z > self.max.z {
+        if self.current.y >= self.max.y && self.current.z >= self.max.z {
             self.current.x += 1;
             self.current.y = self.min.y;
             self.current.z = self.min.z;
         }
-        else if self.current.z > self.max.z {
+        else if self.current.z >= self.max.z {
             self.current.y += 1;
             self.current.z = self.min.z;
         }

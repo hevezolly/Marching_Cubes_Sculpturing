@@ -1,6 +1,7 @@
-use glam::{ivec3, IVec3, Vec3};
+use glam::{IVec3, Vec3};
+use num::clamp;
 
-use super::raycast::{Ray, ray_box_intersection, resolve_ray_box_intersection};
+use super::{cordinates::RoundableToIVec3, raycast::{ray_box_intersection, resolve_ray_box_intersection, Ray}};
 
 pub struct GridLineIntersection 
 {
@@ -71,14 +72,14 @@ fn inv_lerp(value: f32, min: f32, max: f32) -> f32 {
     (value - min) / (max - min)
 }
 
-pub fn march_grid_by_ray(
+pub fn march_grid_by_ray<T: Into<IVec3>>(
     ray_origin: Vec3,
     ray_direction: Vec3,
-    grid_bounds_min: IVec3,
-    grid_bounds_max_inclusive: IVec3,
+    grid_bounds_min: T,
+    grid_bounds_max: T,
 ) -> Option<GridLineIntersection> {
-    let min_i = grid_bounds_min;
-    let max_i = grid_bounds_max_inclusive;
+    let min_i: IVec3 = grid_bounds_min.into();
+    let max_i: IVec3 = grid_bounds_max.into();
 
     let min = min_i.as_vec3();
     let max = max_i.as_vec3() + Vec3::ONE;
@@ -87,11 +88,10 @@ pub fn march_grid_by_ray(
     let (closest_f, _) = resolve_ray_box_intersection(intersection, ray_origin, 
         min, max)?;
 
-    let closest = closest_f.floor();
-    let mut closest = ivec3(closest.x as i32, closest.y as i32, closest.z as i32);
-    closest.x = closest.x.clamp(min_i.x, max_i.x);
-    closest.y = closest.y.clamp(min_i.y, max_i.y);
-    closest.z = closest.z.clamp(min_i.z, max_i.z);
+    let mut closest = closest_f.floor_to_ivec();
+    closest.x = clamp(closest.x, min_i.x, max_i.x);
+    closest.y = clamp(closest.y, min_i.y, max_i.y);
+    closest.z = clamp(closest.z, min_i.z, max_i.z);
     let step = IVec3::new(sign(ray_direction.x), sign(ray_direction.y), sign(ray_direction.z));
     
     let mut next_cord = closest_f.floor() + Vec3::ONE;

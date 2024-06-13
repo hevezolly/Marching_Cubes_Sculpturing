@@ -11,6 +11,7 @@ uniform vec3 field_scale;
 uniform ivec3 num_boxes; // should not be more than dimenitions of scalarField - 2;
 uniform float surface_level;
 
+
 struct SamplePoint 
 {
     vec3 position;
@@ -23,21 +24,26 @@ layout(std430, binding = 2) writeonly buffer outputLayout
     float outputTriangles[];
 };
 
+layout(std430, binding = 4) writeonly buffer fillCacheLayout {
+    uint indexCache[];
+};
+
+#ifndef BLOCK_UPDATE
 layout(std430, binding = 1) buffer commanBuffer {
     uint count;
     uint prim_count;
     uint first;
     uint reserved;
 } Command;
+#else
+uniform ivec3 start_block; //!OPTIONAL
+#endif
 
 layout(std430, binding = 3) readonly buffer triTableBuffer 
 {
     int triTable[256][16]; 
 };
 
-layout(std430, binding = 4) writeonly buffer fillCacheLayout {
-    int fillCache[];
-};
 
 layout(std430, binding = 5) writeonly buffer collisionShapeLayout {
     uint collisionShape[];
@@ -116,16 +122,34 @@ vec3 Normal(float x_neg, float x_pos, float y_neg, float y_pos, float z_neg, flo
     return normalize(vec3(dx, dy, dz));
 }
 
+vec3 FlatNormal(vec3 p1, vec3 p2, vec3 p3) {
+    return -normalize(cross((p2 - p1), (p3 - p1)));
+}
+
 float SampleField(ivec3 index) {
 
     index = clamp(index + ivec3(1, 1, 1), ivec3(0, 0, 0), num_boxes + ivec3(2, 2, 2));
     return imageLoad(scalarField, index).r;
 }
 
+void WriteSamplePoint(uint index, SamplePoint point) {
+    outputTriangles[index * 6] = point.position.x;
+    outputTriangles[index * 6 + 1] = point.position.y;
+    outputTriangles[index * 6 + 2] = point.position.z;
+
+    outputTriangles[index * 6 + 3] = point.normal.x;
+    outputTriangles[index * 6 + 4] = point.normal.y;
+    outputTriangles[index * 6 + 5] = point.normal.z;
+}
+
+int CordToIndex(ivec3 box_coord) {
+    return box_coord.x + 
+        box_coord.y * num_boxes.x + 
+        box_coord.z * num_boxes.y * num_boxes.x;
+}
+
 void setCollisionShape(int triangle_config, ivec3 box_coord) {
-    int position = box_coord.x + 
-                   box_coord.y * num_boxes.x + 
-                   box_coord.z * num_boxes.y * num_boxes.x;
+    int position = CordToIndex(box_coord);
 
 #ifdef COMPRESS_COLLISION
 
@@ -141,23 +165,12 @@ void setCollisionShape(int triangle_config, ivec3 box_coord) {
 #endif
 }
 
-void setCacheBlock(bool filled, ivec3 box_coord) {
-    int position = box_coord.x + 
-                   box_coord.y * num_boxes.x + 
-                   box_coord.z * num_boxes.y * num_boxes.x;
-
-    int block_id = position / 32;
-    int mask = 1 << (position % 32);
-    if (!filled) {
-        atomicAnd(fillCache[block_id], mask ^ (-1));
-    }
-    else {
-        atomicOr(fillCache[block_id], mask);
-    }
-}
-
 void main() {
     ivec3 box_coord = ivec3(gl_GlobalInvocationID.xyz);
+#ifdef BLOCK_UPDATE
+    box_coord += start_block;
+#endif
+
     if (box_coord.x >= num_boxes.x || 
         box_coord.y >= num_boxes.y || 
         box_coord.z >= num_boxes.z)
@@ -206,7 +219,7 @@ void main() {
         );
     }
 
-    
+#ifndef FLAT_SHADING
 
     grid_sample_points[0].normal = Normal(
         SampleField(indecies[0] - dx), grid_sample_points[1].sampleValue,
@@ -257,6 +270,7 @@ void main() {
         SampleField(indecies[7] - dz), grid_sample_points[4].sampleValue
     );
 
+#endif
     
     
     int cube_index = 0;
@@ -287,8 +301,14 @@ void main() {
     setCollisionShape(cube_index, box_coord);
 
     // setCacheBlock(fill, box_coord);
+
     if (!fill)
+    {
+#ifdef BLOCK_UPDATE
+        indexCache[CordToIndex(box_coord)] = 0;
+#endif
         return;
+    }
     
     if ((edge_index & 1) != 0)
         result_vertecies[0] = 
@@ -327,6 +347,8 @@ void main() {
         result_vertecies[11] = 
             VertexInterp(grid_sample_points[3], grid_sample_points[7]);
 
+#ifndef BLOCK_UPDATE
+
     SamplePoint result[15];
     int pointsCount = 0;
 
@@ -336,23 +358,47 @@ void main() {
         result[pointsCount + 1] = result_vertecies[triTable[cube_index][i + 1]];
         result[pointsCount + 2] = result_vertecies[triTable[cube_index][i + 2]];
 
+#ifdef FLAT_SHADING
+        vec3 normal = FlatNormal(result[pointsCount].position, result[pointsCount + 1].position, result[pointsCount + 2].position);
+        result[pointsCount].normal = normal;
+        result[pointsCount + 1].normal = normal;
+        result[pointsCount + 2].normal = normal;
+#endif
+
         pointsCount += 3;
     }
 
-    // int pointsCount = 2;
-    // result[0] = Triangle(vec4(result_vertecies[2].xyz, 1.), vec4(result_vertecies[3].xyz, 1.), vec4(result_vertecies[11].xyz, 1.));
-    // result[1] = Triangle(vec4(result_vertecies[2].xyz, 1.), vec4(result_vertecies[6].xyz, 1.), vec4(result_vertecies[11].xyz, 1.));
-
     uint write_position = atomicAdd(Command.count, pointsCount);
 
-    for (int i = 0; i < pointsCount; i++) 
+    for (uint i = 0; i < pointsCount; i++) 
     {
-        outputTriangles[(write_position + i) * 6] = result[i].position.x;
-        outputTriangles[(write_position + i) * 6 + 1] = result[i].position.y;
-        outputTriangles[(write_position + i) * 6 + 2] = result[i].position.z;
-
-        outputTriangles[(write_position + i) * 6 + 3] = result[i].normal.x;
-        outputTriangles[(write_position + i) * 6 + 4] = result[i].normal.y;
-        outputTriangles[(write_position + i) * 6 + 5] = result[i].normal.z;
+        WriteSamplePoint(write_position + i, result[i]);
     }
+
+#else
+
+    uint block_index = uint(CordToIndex(box_coord));
+    uint write_position = block_index * 15;
+    uint points_count = 0;
+
+    for (; triTable[cube_index][points_count] != -1; points_count += 3) 
+    {
+        SamplePoint point = result_vertecies[triTable[cube_index][points_count]];
+        SamplePoint point1 = result_vertecies[triTable[cube_index][points_count + 1]];
+        SamplePoint point2 = result_vertecies[triTable[cube_index][points_count + 2]];
+
+#ifdef FLAT_SHADING
+        vec3 normal = FlatNormal(point.position, point1.position, point2.position);
+        point.normal = normal;
+        point1.normal = normal;
+        point2.normal = normal;
+#endif
+
+        WriteSamplePoint(write_position + points_count, point);
+        WriteSamplePoint(write_position + points_count + 1, point1);
+        WriteSamplePoint(write_position + points_count + 2, point2);
+    }
+
+    indexCache[block_index] = points_count;
+#endif
 }

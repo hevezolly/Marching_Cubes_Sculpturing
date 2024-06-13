@@ -6,7 +6,7 @@ pub mod transform;
 pub mod grid_line_intersection;
 pub mod cordinates;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Triangle([Vec3;3]);
 
 impl Triangle {

@@ -1,4 +1,27 @@
-use glam::{IVec2, IVec3, Vec2, Vec3};
+use glam::{vec4, IVec2, IVec3, Vec2, Vec3, Vec4};
+
+pub trait WComp {
+    fn with_w(&self, w: f32) -> Vec4;
+    fn w1(&self) -> Vec4 {
+        self.with_w(1.)
+    }
+
+    fn w0(&self) -> Vec4 {
+        self.with_w(1.)
+    }
+}
+
+
+
+impl WComp for Vec3 {
+    fn with_w(&self, w: f32) -> Vec4 {
+        vec4(self.x, self.y, self.z, w)
+    }
+}
+
+pub const fn to_vec3_const(ivec: IVec3) -> Vec3 {
+    Vec3 { x: ivec.x as f32, y: ivec.y as f32, z: ivec.z as f32 }
+}
 
 pub trait RoundableToIVec3 {
     fn round_to_ivec(&self) -> IVec3;

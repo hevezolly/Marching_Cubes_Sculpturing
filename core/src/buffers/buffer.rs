@@ -342,7 +342,7 @@ impl<V: VertexDef + Sized + 'static> BufferDataInterface<V> for VertexBuffer<V> 
     }
     
     fn size_in_bytes(&self) -> usize {
-        BufferDataInterface::<V>::len(self.buffer())
+        BufferDataInterface::<V>::size_in_bytes(self.buffer())
     }
     
     fn update_data(&mut self, offset: usize, data: &[V]) {

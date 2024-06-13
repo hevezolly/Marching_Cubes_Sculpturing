@@ -16,15 +16,18 @@ layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 // }
 
 layout(r32f, binding = 0) uniform image3D imgOutput;
+uniform vec3 center_uvw;
+
 
 void main() {
+    ivec3 im_size = ivec3(imageSize(imgOutput).xyz);
     vec3 texelCoord = vec3(gl_GlobalInvocationID.xyz) / (
-        vec3(gl_NumWorkGroups.xyz) - vec3(1., 1., 1.));
+        vec3(im_size) - vec3(1.));
 	
-    vec3 center = vec3(0.5, 0.5, 0.5);
+    vec3 center = center_uvw;
 
     // vec4 value = vec4(1., 1., 0., 1.);
-    vec4 value = vec4(length(center - texelCoord), 0., 0., 0.);
+    vec4 value = vec4(clamp(length(center - texelCoord), 0., 1.), 0., 0., 0.);
 	
     imageStore(imgOutput, ivec3(gl_GlobalInvocationID.xyz), value);
 }
