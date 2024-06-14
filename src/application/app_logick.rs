@@ -61,7 +61,7 @@ pub const fn ceil_div(val: usize, divider: usize) -> usize {
 
 pub const BLOCKY: bool = false;
 pub const FLAT_SHADING: bool = false;
-pub const CHUNK_SIZE: i32 = 32;
+pub const CHUNK_SIZE: i32 = 64;
 pub const NUM_OF_CUBES: IVec3 = IVec3 { x: CHUNK_SIZE, y: CHUNK_SIZE, z: CHUNK_SIZE };
 
 const FPS: usize = 60;
