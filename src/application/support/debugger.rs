@@ -9,7 +9,7 @@ use crate::{algorithms::{camera::Camera, cordinates::WComp, Triangle}, applicati
 use super::{bounds::Bounds, camera_ref::CameraRefDyn};
 
 
-const ENABLE_DEBUG: bool = true;
+const ENABLE_DEBUG: bool = false;
 
 pub enum DebugPrimitive {
     Box{
