@@ -9,6 +9,10 @@
 
 Project is based on [Marching Cubes](https://en.wikipedia.org/wiki/Marching_cubes) algorithm. All computation (except raycasting) is done on GPU inside Compute Shaders.
 
+<img src="https://github.com/hevezolly/blobs/blob/master/showcase1.gif" width="600" height="600" />
+
+(Color banding in the preview is a result of a gif compression)
+
 #### Optimisations
 
 - SDF Update happens only in "dirty" area, around user interraction point.
@@ -20,6 +24,4 @@ Project is based on [Marching Cubes](https://en.wikipedia.org/wiki/Marching_cube
 Thus, field of size 64x64x64 requires only 6-7ms to update.
 
 
-<img src="https://github.com/hevezolly/blobs/blob/master/showcase1.gif" width="600" height="600" />
 
-(Color bending on the preview is the result of a gif compression)
