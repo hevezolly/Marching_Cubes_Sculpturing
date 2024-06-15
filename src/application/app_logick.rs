@@ -170,31 +170,47 @@ impl ExecutrionLogick {
             self.camera.transform.set_rotation(rot);
         }
 
+
+        // let hit = if let Some(mouse_pos) = input.pointer.hover_pos() {
+        //     let size = vec2(input.screen_rect.width(), input.screen_rect.height());
+        //     let viewport =  vec2(mouse_pos.x, mouse_pos.y) / size;
+        //     let ray = self.camera.viewport_point_to_ray(vec3(viewport.x, 1. - viewport.y, 0.));
+    
+        //     self.field.raycast(ray)
+        // }
+        // else {
+        //     None
+        // };
         
 
         if !egui_ctx.is_pointer_over_area() && input.pointer.button_down(egui::PointerButton::Primary) {
-            if let Some(mouse_pos) = input.pointer.hover_pos() {
+
+            let hit = if let Some(mouse_pos) = input.pointer.hover_pos() {
                 let size = vec2(input.screen_rect.width(), input.screen_rect.height());
                 let viewport =  vec2(mouse_pos.x, mouse_pos.y) / size;
                 let ray = self.camera.viewport_point_to_ray(vec3(viewport.x, 1. - viewport.y, 0.));
+        
+                self.field.raycast(ray)
+            }
+            else {
+                None
+            };
 
-                let scale = Vec3::ONE;// / NUM_OF_CUBES.as_vec3();
-                if let Some(position) = self.field.raycast(ray) {
-                    let brush = CircleBrush::new(
-                        self.programm_storage.clone(),
-                        position, 0.1, self.strength * if self.remove { -1. } else {1.}, 1.);
+            if let Some(position) = hit {
+                
+                let brush = CircleBrush::new(
+                self.programm_storage.clone(),
+                position, 0.1, self.strength * if self.remove { -1. } else {1.}, 1.);
 
-                    // dbg!("HIT");
-                    // self.debugger.draw(crate::application::support::debugger::DebugPrimitive::Point(position), Color32::RED);
-                    self.field.apply_brush(&brush);
+                // dbg!("HIT");
+                // self.debugger.draw(crate::application::support::debugger::DebugPrimitive::Point(position), Color32::RED);
+                self.field.apply_brush(&brush);
                     // self.field.march();
 
 
                     // let start = Instant::now();
                     // GL!(gl::Finish());
                     // dbg!(start.elapsed());
-                }
-
             }
         }
     }

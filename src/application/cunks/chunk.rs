@@ -213,23 +213,21 @@ impl Chunk {
             // draw(center, size);
 
             // let bounds = Bounds::min_max(c.as_vec3(), Vec3::ONE);
-
-            let result = ray_box_intersection(c.as_vec3(), c.as_vec3() + Vec3::ONE, ray);
-            if let IntersectionResult::None = result {
-                self.debugger.draw(DebugPrimitive::Point(c.as_vec3() + Vec3::ONE * 0.5), Color32::BLUE);
-                // panic!("incorrect intersection! {:?} {:?}", c, ray);
-            }
                 
             let triangles = self.march_parameters.collision_field.get(c);
 
             if triangles.len() > 0 {
-                self.debugger.draw(DebugPrimitive::Box { corner: c.as_vec3(), size: Vec3::ONE }, Color32::RED);
+                self.debugger.draw_width(DebugPrimitive::Box { corner: c.as_vec3(), size: Vec3::ONE }, Color32::RED, 2.);
+            }
+            else {
+                self.debugger.draw_width(DebugPrimitive::Box { corner: c.as_vec3(), size: Vec3::ONE }, Color32::RED, 0.1);
             }
 
             for triangle in triangles {
                 self.debugger.draw(DebugPrimitive::Triangle(triangle), Color32::GOLD);
                 let intersection: Option<Vec3> = ray_triangle_intersection(ray, &triangle);
                 if intersection.is_some() {
+                    self.debugger.draw_width(DebugPrimitive::Triangle(triangle), Color32::BLUE, 2.);
                     return intersection;
                 }
             }

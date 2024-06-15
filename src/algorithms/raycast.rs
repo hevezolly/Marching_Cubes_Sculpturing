@@ -49,6 +49,7 @@ fn ray_plane_intersection(position: Vec3, normal: Vec3, ray: Ray) -> Option<Vec3
 }
 
 pub fn ray_triangle_intersection(ray: Ray, triangle: &Triangle) -> Option<Vec3> {
+    let triangle = triangle.offset_triangle(0.01);
     let plane_position = triangle.a();
     let plane_normal = triangle.normal();
     if let Some(plane_hit) = ray_plane_intersection(plane_position, plane_normal, ray) {

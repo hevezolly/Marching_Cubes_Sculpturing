@@ -1,4 +1,6 @@
 
+use std::f32::consts::PI;
+
 use glam::{Vec3, Mat4, Vec4Swizzles, vec4};
 
 use crate::algorithms::{raycast::Ray, transform::Transform};
@@ -70,17 +72,20 @@ impl Camera for PerspectiveCamera {
         let point = Vec3::new((viewport_point.x - 0.5) * 2., (viewport_point.y - 0.5) * 2., -1.);
         let point4 = vec4(point.x, point.y, point.z, 1.);
 
-        let mut dir_eye = p_inv * point4;
+        let dir_eye = p_inv * point4;
+        let mut dir_eye = dir_eye / dir_eye.w;
         dir_eye.w = 0.;
 
-        let dir_world = (v_inv * dir_eye).xyz();
+        let viewed = (v_inv * dir_eye).xyz();
+        let position = self.transform.position() + viewed;
+        let direction = viewed.normalize();
 
         
-        Ray::new(self.transform.position(), dir_world.normalize())
+        Ray::new(position, direction)
     }
 
     fn view_matrix(&self) -> Mat4 {
-        self.transform.matrix().inverse()
+        self.transform.inverse_matrix()
     }
 
     fn projection_matrix(&self) -> Mat4 {

@@ -30,14 +30,15 @@ struct DebugDraw {
     primitive: DebugPrimitive,
     color: Color32,
     matrix: Mat4,
+    width: f32,
 }
 
 impl DebugDraw {
     fn draw(&self, camera: &impl Camera, egui_ctx: &CtxRef) {
         match self.primitive {
-            DebugPrimitive::Box { corner, size } => draw_box(camera, egui_ctx, self.matrix, corner, size, self.color),
+            DebugPrimitive::Box { corner, size } => draw_box(camera, egui_ctx, self.matrix, corner, size, self.color, self.width),
             DebugPrimitive::Point(p) => draw_point(self.matrix, self.color, p, egui_ctx, camera),
-            DebugPrimitive::Triangle(t) => draw_triangle(camera, egui_ctx, self.matrix, self.color, t),
+            DebugPrimitive::Triangle(t) => draw_triangle(camera, egui_ctx, self.matrix, self.color, t, self.width),
         }
     } 
 }
@@ -68,7 +69,7 @@ fn screen_size(egui_ctx: &CtxRef) -> Vec2 {
     vec2(egui_ctx.input().screen_rect.size().x, egui_ctx.input().screen_rect.size().y)
 }
 
-fn draw_triangle(camera: &impl Camera, egui_ctx: &CtxRef, matrix: Mat4, color: Color32, triangle: Triangle) {
+fn draw_triangle(camera: &impl Camera, egui_ctx: &CtxRef, matrix: Mat4, color: Color32, triangle: Triangle, width: f32) {
     let painter = egui_ctx.debug_painter();
     let screen_size = screen_size(egui_ctx);
     //  egui_ctx.pixels_per_point();
@@ -95,7 +96,7 @@ fn draw_triangle(camera: &impl Camera, egui_ctx: &CtxRef, matrix: Mat4, color: C
     let b = Pos2::new(b.x * screen_size.x, (1. - b.y) * screen_size.y);
     let c = Pos2::new(c.x * screen_size.x, (1. - c.y) * screen_size.y);
 
-    let stroke = Stroke::new(1., color);
+    let stroke = Stroke::new(width, color);
 
 
     if draw_a && draw_b {
@@ -115,7 +116,8 @@ fn draw_box(
     matrix: Mat4,
     corner: Vec3, 
     size: Vec3, 
-    color: Color32) {
+    color: Color32, 
+    width: f32) {
     let painter = egui_ctx.debug_painter();
     let corner = vec4(corner.x, corner.y, corner.z, 1.);
 
@@ -171,7 +173,7 @@ fn draw_box(
     let rtb = Pos2::new(rtb.x * screen_size.x, (1. - rtb.y) * screen_size.y);
     let rtf = Pos2::new(rtf.x * screen_size.x, (1. - rtf.y) * screen_size.y);
 
-    let stroke = Stroke::new(1., color);
+    let stroke = Stroke::new(width, color);
 
 
     if draw_lbb && draw_rbb {
@@ -229,7 +231,18 @@ impl Debugger {
         self.primitives.lock().unwrap().push(DebugDraw {
             primitive,
             color,
-            matrix: self.matrix
+            matrix: self.matrix,
+            width: 1.
+        });
+    }
+
+    pub fn draw_width(&mut self, primitive: DebugPrimitive, color: Color32, width: f32) {
+        if !ENABLE_DEBUG {return;}
+        self.primitives.lock().unwrap().push(DebugDraw {
+            primitive,
+            color,
+            matrix: self.matrix,
+            width
         });
     }
 

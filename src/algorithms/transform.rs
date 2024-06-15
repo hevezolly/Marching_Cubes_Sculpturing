@@ -88,12 +88,7 @@ impl Transform {
         self.matrix
     }
 
-    pub fn inverse_matrix(&self) -> Option<Mat4> {
-        if self.inverse_matrix.is_nan() {
-            None
-        }
-        else {
-            Some(self.inverse_matrix)
-        }
+    pub fn inverse_matrix(&self) -> Mat4 {
+        self.inverse_matrix
     }
 }

@@ -33,10 +33,6 @@ pub const CHUNK_SCALE_FACTOR: Vec3 = vec3(1. / (NUM_OF_CUBES.x as f32),
     1. / (NUM_OF_CUBES.y as f32),
     1. / (NUM_OF_CUBES.z as f32));
 
-pub const CHUNK_SCALE_FACTOR_SUB_ONE: Vec3 = vec3(1. / (NUM_OF_CUBES.x as f32 - 1.), 
-    1. / (NUM_OF_CUBES.y as f32 - 1.),
-    1. / (NUM_OF_CUBES.z as f32 - 1.));
-
 const CHUNK_SIZE: Vec3 = Vec3 {
     x: CHUNK_SCALE_FACTOR.x * NUM_OF_CUBES.x as f32,
     y: CHUNK_SCALE_FACTOR.y * NUM_OF_CUBES.y as f32,
@@ -78,7 +74,7 @@ impl Field {
                 ray.origin / CHUNK_SIZE, 
                 ray.direction / CHUNK_SIZE, 
                 self.chunk_bounds.min(),
-                self.chunk_bounds.max())? {
+                self.chunk_bounds.max() + IVec3::ONE)? {
 
             let chunk = self.chunks.get_mut(&chunk_cord);
             if chunk.is_none() {continue;}
@@ -102,7 +98,7 @@ impl Field {
 
             
             let chunk_position = chunk_position(*cord);
-            // self.debugger.draw(DebugPrimitive::Box { corner: chunk_position, size: CHUNK_SIZE }, Color32::GREEN);
+            self.debugger.draw(DebugPrimitive::Box { corner: chunk_position, size: CHUNK_SIZE }, Color32::GREEN);
             // self.debugger.draw(DebugPrimitive::Box { 
             //     corner: chunk_position - 1.5 * CHUNK_SCALE_FACTOR, 
             //     size: CHUNK_SIZE + 3. * CHUNK_SCALE_FACTOR 
