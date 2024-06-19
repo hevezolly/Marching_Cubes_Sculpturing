@@ -1,5 +1,6 @@
 use core::context::synchronization_context::SynchronizationContext;
 use core::GL;
+use std::default;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -33,6 +34,18 @@ use super::support::camera_ref::CameraRef;
 use super::support::debugger::Debugger;
 use super::support::shaders::shaders_loader::ShaderStorage;
 
+
+struct DebugSettings {
+    debug: bool,
+    draw_model: bool,
+    draw_sdf: bool
+}
+
+impl Default for DebugSettings {
+    fn default() -> Self {
+        Self { debug: false, draw_model: true, draw_sdf: true }
+    }
+}
 pub struct ExecutrionLogick {
     // command_buffer: Buffer,
     camera: PerspectiveCamera,
@@ -42,7 +55,7 @@ pub struct ExecutrionLogick {
     field: Field,
     slice: f32,
     strength: f32,
-    debug: bool,
+    debug: DebugSettings,
     remove: bool,
     instant: Instant,
     // image: Image
@@ -80,7 +93,7 @@ impl ExecutrionLogick {
         //     dbg!(c);
         // }
 
-        let mut camera = PerspectiveCamera::new(90., 0.01, 100.);
+        let mut camera = PerspectiveCamera::new(60., 0.01, 100.);
         camera.transform.set_position(vec3(0.5, 0.5, -1.));
         let sync_context = SynchronizationContext::new();
         let programm_storage = ShaderStorage::new();
@@ -96,7 +109,7 @@ impl ExecutrionLogick {
             slice: 0.,
             field,
             strength: 0.01,
-            debug: false,
+            debug: Default::default(),
             remove: false,
             sync_context,
             instant: Instant::now(),
@@ -224,11 +237,16 @@ impl ExecutrionLogick {
         
         self.camera.set_aspect_ratio(params.height as f32 / params.width as f32);
         
-        if !self.debug {
+        if !self.debug.debug {
             self.field.draw(&self.camera);
         }
         else {
-            self.field.debug(&self.camera);
+            if self.debug.draw_model {
+                self.field.draw(&self.camera);
+            }
+            if self.debug.draw_sdf {
+                self.field.draw_distance_field(&self.camera, self.slice);
+            }
         }
         // else {
         //     self.field.draw_3d_texture(&self.camera, self.slice);
@@ -247,12 +265,27 @@ impl ExecutrionLogick {
             ui.add(egui::Slider::new(&mut fov, 1.0..=179.).text("fov"));
             self.camera.set_fov(fov);
 
-            ui.add(egui::Slider::new(&mut self.slice, 0.0..=1.0).text("slice"));
             ui.add(egui::Slider::new(&mut self.strength, 0.0..=0.1).text("strength"));
-
-            ui.checkbox(&mut self.debug, "debug");
+            
             ui.checkbox(&mut self.remove, "remove");
 
+            ui.add_space(10.);
+            
+            let mut new_debug = self.debug.debug;
+            ui.checkbox(&mut new_debug, "debug");
+            if new_debug != self.debug.debug {
+                self.debugger.set_debug_enabled(new_debug);
+                self.debug.debug = new_debug;
+            }
+            if self.debug.debug {
+
+                ui.checkbox(&mut self.debug.draw_model, "draw model");
+                ui.checkbox(&mut self.debug.draw_sdf, "draw sdf");
+
+                if self.debug.draw_sdf {
+                    ui.add(egui::Slider::new(&mut self.slice, 0.0..=1.0).text("slice"));
+                }
+            }
             // if ui.button("snapshot").clicked() {
             //     self.chunk.snapshot();
             // }

@@ -75,6 +75,11 @@ pub struct MipMapFilterMode {
     pub mip_filter: FilterMode
 }
 
+impl MipMapFilterMode {
+    pub const TRILINEAR: MipMapFilterMode = MipMapFilterMode { tex_filter: FilterMode::Linear, mip_filter: FilterMode::Linear };
+
+}
+
 impl TextureFilterMode for MipMapFilterMode {
     fn param_value(&self) -> gl::types::GLenum {
         match (&self.tex_filter, &self.mip_filter) {
@@ -166,6 +171,10 @@ impl Texture {
 
     pub fn bind_image<T: Into<TextureUnit>>(&mut self, unit: T, access: TextureAccess) {
         self.bind_image_lod(self.format.lod, unit, access)
+    }
+
+    pub fn generate_mips(&mut self) {
+        GL!(gl::GenerateTextureMipmap(self.id));
     }
 
     // pub fn unbind(&mut self) {

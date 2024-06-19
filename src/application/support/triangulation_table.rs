@@ -295,15 +295,26 @@ fn vertex_pos_by_id(edge_index: i32, cube_center: Vec3, cube_size: Vec3) -> Vec3
     }
 }
 
-pub fn triangulate_centers(config_index: u8, cube_center: Vec3, cube_size: Vec3) -> Vec<Triangle> {
+pub fn triangulate_centers(
+    output: &mut [Triangle],
+    config_index: u8, 
+    cube_center: Vec3, 
+    cube_size: Vec3, 
+    offset: f32,
+) -> usize {
 
     let current_table = TRI_TABLE[config_index as usize];
 
-    (0..16).step_by(3)
-        .take_while(|i| current_table[*i] >= 0)
-        .map(|i| Triangle::new(
-            vertex_pos_by_id(current_table[i+1], cube_center, cube_size),
-            vertex_pos_by_id(current_table[i], cube_center, cube_size),
-            vertex_pos_by_id(current_table[i+2], cube_center, cube_size),
-        )).collect()    
+    let mut count = 0;
+    for v_i in (0..16).step_by(3).take_while(|i| current_table[*i] >= 0) {
+        let triangle = Triangle::new(
+            vertex_pos_by_id(current_table[v_i+1], cube_center, cube_size),
+            vertex_pos_by_id(current_table[v_i], cube_center, cube_size),
+            vertex_pos_by_id(current_table[v_i+2], cube_center, cube_size),
+        ).offset_triangle(offset);
+
+        output[count] = triangle;
+        count += 1;
+    }
+    count
 }

@@ -1,5 +1,5 @@
 use core::{buffers::buffer::{Buffer, BufferDataInterface, Usage, VertexBuffer}, shaders::shader::Shader, GL};
-use std::ops::Index;
+use std::{fmt::Debug, ops::Index};
 
 use egui_glfw_gl::gl;
 use glam::{ivec3, vec3, IVec3, Mat4, Vec3};
@@ -11,11 +11,13 @@ use super::{DrawParameters, ModelVertex};
 
 pub const COMPRESS_COLLISION: bool = true;
 
-pub const NUM_OF_BLOCKS: usize = if !COMPRESS_COLLISION {
+const NUM_OF_BLOCKS: usize = if !COMPRESS_COLLISION {
     (NUM_OF_CUBES.x * NUM_OF_CUBES.y * NUM_OF_CUBES.z) as usize
 } else {
     ceil_div((NUM_OF_CUBES.x * NUM_OF_CUBES.y * NUM_OF_CUBES.z) as usize, 4)
 };
+
+const TOTAL_NUM_OF_CUBES: usize = (NUM_OF_CUBES.x * NUM_OF_CUBES.y * NUM_OF_CUBES.z) as usize; 
 
 
 #[derive(Uniforms)]
@@ -28,25 +30,65 @@ pub struct ModelDisplayUniform {
     pub light_direction: Vec3
 }
 
+#[derive(Default, Clone)]
+struct BlockTriangles {
+    triangles: [Triangle; 5],
+    triangles_count: usize,
+    update_iteration: u64
+}
+
+impl BlockTriangles {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn get(&self) -> &[Triangle] {
+        &self.triangles[0..self.triangles_count]
+    }
+
+    fn fill(&mut self, config_index: u8, cube_center: Vec3, cube_size: Vec3, offset: f32, update_parity: u64) {
+        self.triangles_count = triangulate_centers(&mut self.triangles, config_index, cube_center, cube_size, offset);
+        self.update_iteration = update_parity;
+    }
+}
+
+impl Debug for BlockTriangles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockTriangles").field("triangles", &self.get()).finish()
+    }
+}
+
 #[derive(Debug)]
 pub struct CollisionShape {
-    field: Box<[u32; NUM_OF_BLOCKS]>,
-    buffer: Buffer
+    raw_field: Box<[u32; NUM_OF_BLOCKS]>,
+    buffer: Buffer,
+    triangles: Vec<BlockTriangles>,
+    update_iteration: u64
+}
+
+fn position(index: IVec3) -> usize {
+    (index.x + 
+        index.y * NUM_OF_CUBES.x + 
+        index.z * NUM_OF_CUBES.y * NUM_OF_CUBES.x) as usize
 }
 
 impl CollisionShape {
     pub fn new() -> CollisionShape {
         let field = Box::new([0u32; NUM_OF_BLOCKS]);
         let buffer = Buffer::from_data(field.as_ref(), Usage::dynamic_read());
-        
+        let triangles = vec![BlockTriangles::new(); TOTAL_NUM_OF_CUBES];
+
         CollisionShape { 
-            field, 
-            buffer
+            raw_field: field,
+            update_iteration: 0, 
+            buffer,
+            triangles
         }
     }
 
     pub fn readback(&mut self) {
-        self.buffer.read_data_from_start(self.field.as_mut());
+        self.buffer.read_data_from_start(self.raw_field.as_mut());
+        self.update_iteration += 1;
     }
     
     pub fn buffer(&self) -> &Buffer {
@@ -57,21 +99,29 @@ impl CollisionShape {
         &mut self.buffer
     }
 
-    pub fn get(&self, index: IVec3) -> Vec<Triangle> {
-        let position = (index.x + 
-            index.y * NUM_OF_CUBES.x + 
-            index.z * NUM_OF_CUBES.y * NUM_OF_CUBES.x) as usize;
+    fn fill(&mut self, index: IVec3) {
+        let position = position(index);
 
         let config = if COMPRESS_COLLISION {
             let field_index = position / 4;
             let shift =  (position % 4) * 8;
             
-            (self.field[field_index] >> shift) & 0xFF
+            (self.raw_field[field_index] >> shift) & 0xFF
         } else {
-            self.field[position]
+            self.raw_field[position]
         };
-        
-        triangulate_centers(config as u8, (index.as_vec3() + Vec3::ONE * 0.5), Vec3::ONE)
+
+        self.triangles[position].fill(config as u8, index.as_vec3() + Vec3::ONE * 0.5, Vec3::ONE, 0.01, self.update_iteration);
+    }
+
+    pub fn get(&mut self, index: IVec3) -> &[Triangle] {
+        let position = position(index);
+
+        if self.triangles[position].update_iteration != self.update_iteration {
+            self.fill(index);
+        }
+
+        self.triangles[position].get()
     }
 }
 
@@ -90,7 +140,7 @@ impl CollisionShapeDebugView {
         CollisionShapeDebugView { buffer, vertex_count, shader_storage }
     }
 
-    pub fn actualize(&mut self, shape: &CollisionShape) {
+    pub fn actualize(&mut self, shape: &mut CollisionShape) {
 
         let mut result_buffer = Vec::new();
 

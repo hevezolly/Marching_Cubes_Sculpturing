@@ -4,7 +4,7 @@ use std::{collections::HashMap};
 use egui_glfw_gl::egui::Color32;
 use glam::{vec3, IVec3, Mat4, Quat, Vec3};
 
-use crate::{algorithms::{camera::Camera, cordinates::{to_vec3_const, RoundableToIVec3}, grid_line_intersection::march_grid_by_ray, raycast::Ray}, application::{app_logick::NUM_OF_CUBES, support::{bounds::Bounds, brush::Brush, debugger::{DebugPrimitive, Debugger}, shaders::shaders_loader::ShaderStorage}}};
+use crate::{algorithms::{camera::Camera, cordinates::{to_vec3_const, RoundableToIVec3}, grid_line_intersection::march_grid_by_ray, raycast::Ray}, application::{app_logick::NUM_OF_CUBES, support::{bounds::{Bounds, Cord3D}, brush::Brush, debugger::{DebugPrimitive, Debugger}, shaders::shaders_loader::ShaderStorage}}};
 
 use super::{chunk::{self, Chunk}, DrawParameters};
 
@@ -65,6 +65,26 @@ impl Field {
             -cord.as_vec3() + Vec3::ONE * 0.5);
         self.chunks.insert(cord, c);
         self.chunk_bounds.encapsulate(cord);
+    }
+
+    pub fn draw_distance_field(&mut self, camera: &impl Camera, slice: f32) {
+        for (cord, chunk) in self.chunks.iter_mut() {
+
+            
+            let chunk_position = chunk_position(*cord);
+            // self.debugger.draw(DebugPrimitive::Box { 
+            //     corner: chunk_position - 1.5 * CHUNK_SCALE_FACTOR, 
+            //     size: CHUNK_SIZE + 3. * CHUNK_SCALE_FACTOR 
+            // }, Color32::YELLOW);
+
+            let position = chunk_position - 1.5 * (CHUNK_SCALE_FACTOR.x * Vec3::X + CHUNK_SCALE_FACTOR.y * Vec3::Y);
+            let offset = -1.5 * CHUNK_SCALE_FACTOR.z + (1. + 3. * CHUNK_SCALE_FACTOR.z) * slice;
+            let model = Mat4::from_scale_rotation_translation(
+                Vec3::ONE + 3. * CHUNK_SCALE_FACTOR, 
+                Quat::IDENTITY, 
+                position + Vec3::Z * offset);
+            chunk.draw_distance_field(DrawParameters { camera: camera, model: &model }, slice);
+        }
     }
 
 

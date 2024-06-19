@@ -1,10 +1,10 @@
 use core::{buffers::buffer::{Buffer, Usage, VertexBuffer}, shaders::{shader::Shader, shader_programm::ShaderProgramm}, textures::TextureUnit, GL};
-use std::ffi::c_void;
+use std::{ffi::c_void, sync::Mutex};
 
 use egui_glfw_gl::gl;
 use glam::{vec2, vec3, Mat4, Vec2, Vec3};
 
-use crate::algorithms::camera::Camera;
+use crate::{algorithms::camera::Camera, application::cunks::DrawParameters};
 
 use super::shaders::{shaders_loader::ShaderStorage, QuadProgramm};
 
@@ -28,10 +28,10 @@ struct DefaultVertex {
 fn quad() -> (VertexBuffer<DefaultVertex>, Buffer) 
 {
     let positions = [
-            DefaultVertex { psition: vec3(-1., -1., 1.), uv: vec2(0., 0.) },
-            DefaultVertex { psition: vec3( 1., -1., 1.), uv: vec2(1., 0.) },
-            DefaultVertex { psition: vec3( 1.,  1., 1.), uv: vec2(1., 1.) },
-            DefaultVertex { psition: vec3(-1.,  1., 1.), uv: vec2(0., 1.) },
+            DefaultVertex { psition: vec3(0., 0., 0.), uv: vec2(0., 0.) },
+            DefaultVertex { psition: vec3(1., 0., 0.), uv: vec2(1., 0.) },
+            DefaultVertex { psition: vec3(1., 1., 0.), uv: vec2(1., 1.) },
+            DefaultVertex { psition: vec3(0., 1., 0.), uv: vec2(0., 1.) },
         ];
 
         let indecies = [
@@ -44,33 +44,34 @@ fn quad() -> (VertexBuffer<DefaultVertex>, Buffer)
     (vertex_buffer, index_buffer)
 }
 
+fn static_quad_buffers<'a>() -> &'a mut (VertexBuffer<DefaultVertex>, Buffer) {
+    static mut MAP: Mutex<Option<(VertexBuffer<DefaultVertex>, Buffer)>> = Mutex::new(None);
+        
+    unsafe { MAP.get_mut().unwrap() }
+            .get_or_insert_with(|| quad())
+}
+
 
 pub struct SimpleQuad {
-    vertex: VertexBuffer<DefaultVertex>,
-    index: Buffer,
     programm_storage: ShaderStorage
 }
 
 impl SimpleQuad {
     pub fn new(mut programm_storage: ShaderStorage) -> Result<SimpleQuad, String> {
-        let (vertex, index) = quad();
 
         programm_storage.access().preload::<QuadProgramm>().unwrap();
         
-        Ok(SimpleQuad { vertex, index, programm_storage })
+        Ok(SimpleQuad {programm_storage })
     }
 
-    pub fn draw(&mut self, camera: &impl Camera, texture: TextureUnit, slice: f32) {
-        self.draw_offset(Vec3::ZERO, camera, texture, slice)
-    }
-
-    pub fn draw_offset(&mut self, offset: Vec3, camera: &impl Camera, texture: TextureUnit, slice: f32) {
-        self.vertex.bind();
-        self.index.bind_as_index();
+    pub fn draw(&mut self, parameters: DrawParameters, texture: TextureUnit, slice: f32) {
+        let (vertex, index) = static_quad_buffers();
+        vertex.bind();
+        index.bind_as_index();
 
         self.programm_storage.access().get::<QuadProgramm>().unwrap().bind().set_uniforms(QuadDisplayUniform {
-            view: camera.view_matrix() * Mat4::from_translation(-offset),
-            projection: camera.projection_matrix(),
+            view: parameters.camera.view_matrix() * *parameters.model,
+            projection: parameters.camera.projection_matrix(),
             volume: texture,
             slice
         }).unwrap();
@@ -78,7 +79,7 @@ impl SimpleQuad {
         // GL!(gl::DrawArrays(gl::TRIANGLES, self.offset * 3, self.draw_count * 3));
         GL!(gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, (0) as *const c_void));
 
-        self.vertex.unbind();
-        self.index.unbind();
+        vertex.unbind();
+        index.unbind();
     }
 }

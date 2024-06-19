@@ -8,5 +8,5 @@ out vec4 FragColor;
 
 void main()
 { 
-    FragColor = vec4(texture(volume, vec3(var_uv.xy, slice)).xyz, 1.);
+    FragColor = vec4(texture(volume, vec3(var_uv.xy, slice)).xxx, 1.);
 }

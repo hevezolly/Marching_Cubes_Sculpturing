@@ -1,4 +1,4 @@
-use std::{rc::Rc, sync::{Arc, Mutex}};
+use std::{cell::Cell, rc::Rc, sync::{Arc, Mutex}};
 
 use egui_glfw_gl::egui::{Color32, CtxRef, Pos2, Stroke};
 use glam::{vec2, vec4, Mat4, Vec2, Vec3, Vec4, Vec4Swizzles};
@@ -8,8 +8,6 @@ use crate::{algorithms::{camera::Camera, cordinates::WComp, Triangle}, applicati
 
 use super::{bounds::Bounds, camera_ref::CameraRefDyn};
 
-
-const ENABLE_DEBUG: bool = false;
 
 pub enum DebugPrimitive {
     Box{
@@ -46,7 +44,8 @@ impl DebugDraw {
 #[derive(Clone)]
 pub struct Debugger {
     matrix: Mat4,
-    primitives: Arc<Mutex<Vec<DebugDraw>>>
+    primitives: Arc<Mutex<Vec<DebugDraw>>>,
+    draw_debug: Arc<Cell<bool>>
 }
 
 fn draw_point(matrix: Mat4, color: Color32, center: Vec3, egui_ctx: &CtxRef, camera: &impl Camera) {
@@ -217,7 +216,10 @@ fn draw_box(
 
 impl Debugger {
     pub fn new() -> Debugger {
-        Debugger { matrix: Mat4::IDENTITY, primitives: Arc::new(Mutex::new(Vec::new())) }
+        Debugger { 
+            matrix: Mat4::IDENTITY, 
+            primitives: Arc::new(Mutex::new(Vec::new())), 
+            draw_debug: Arc::new(Cell::new(false)) }
     }
 
     pub fn clone_with_matrix(&self, matrix: Mat4) -> Debugger {
@@ -226,8 +228,16 @@ impl Debugger {
         d
     }
 
+    pub fn is_debug_enabled(&self) -> bool {
+        self.draw_debug.get()
+    }
+
+    pub fn set_debug_enabled(&self, enabled: bool) {
+        self.draw_debug.set(enabled)
+    }
+
     pub fn draw(&mut self, primitive: DebugPrimitive, color: Color32) {
-        if !ENABLE_DEBUG {return;}
+        if !self.is_debug_enabled() {return;}
         self.primitives.lock().unwrap().push(DebugDraw {
             primitive,
             color,
@@ -237,7 +247,7 @@ impl Debugger {
     }
 
     pub fn draw_width(&mut self, primitive: DebugPrimitive, color: Color32, width: f32) {
-        if !ENABLE_DEBUG {return;}
+        if !self.is_debug_enabled() {return;}
         self.primitives.lock().unwrap().push(DebugDraw {
             primitive,
             color,

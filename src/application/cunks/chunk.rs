@@ -1,4 +1,4 @@
-use core::{buffers::buffer::{Usage, VertexBuffer}, context::synchronization_context::{AllBarrier, ShaderImageAccessBarrier, ShaderStorageBarrier, SynchronizationContext}, textures::{image_provider::ImageFormat, texture::{FilterMode, Texture, TextureAccess, WrapMode}, TextureUnit}, GL};
+use core::{buffers::buffer::{Usage, VertexBuffer}, context::synchronization_context::{AllBarrier, ShaderImageAccessBarrier, ShaderStorageBarrier, SynchronizationContext}, textures::{image_provider::ImageFormat, texture::{FilterMode, MipMapFilterMode, Texture, TextureAccess, WrapMode}, TextureUnit}, GL};
 
 use egui_glfw_gl::{egui::Color32, gl};
 use glam::{ivec3, vec3, IVec3, Mat4, Vec3};
@@ -21,7 +21,9 @@ pub struct Chunk {
     marcher: Box<dyn CubeMarcher>,
     march_parameters: MarchParameters,
     debugger: Debugger,
+    quad: Option<SimpleQuad>,
     is_collision_shape_dirty: bool,
+    is_sdf_top_level_dirty: bool,
     collider_drawer: Option<CollisionShapeDebugView>
 }
 
@@ -50,33 +52,10 @@ fn fill_sphere(chunk: &mut Chunk, center_uvw: Vec3) {
         (TEXTURE_DIM.z) as u32));
     c.apply();
 
+    chunk.is_sdf_top_level_dirty = true;
+
     chunk.march_parameters.dirty_area = Bounds::min_max(IVec3::ZERO, NUM_OF_CUBES);     
 }
-
-// #[derive(Uniforms)]
-// #[for_shaders("resources/shader_sources/marching_cubes/zero_field.compute")]
-// struct ZeroFieldUniforms {
-//     #[name("imgOutput")]
-//     img_output: TextureUnit,
-//     // imgOutput: TextureUnit
-// }  
-
-// fn fill_empty(chunk: &mut Chunk) {
-//     chunk.march_parameters.distance_field.bind_image(1, TextureAccess::Write);
-
-//     chunk.march_parameters.programm_storage.access().get::<ZeroFieldProgramm>().unwrap()
-//     .bind().set_uniforms(ZeroFieldUniforms {
-//         img_output: 1.into(),
-//     }).unwrap();
-
-//     let c = chunk.march_parameters.sync_context.dirty() | ShaderImageAccessBarrier;
-//     GL!(gl::DispatchCompute((TEXTURE_DIM.x) as u32, 
-//         (TEXTURE_DIM.y) as u32, 
-//         (TEXTURE_DIM.z) as u32));
-//     c.apply();
-
-//     // chunk.march_parameters.dirty_area = Bounds::min_max(IVec3::ZERO, NUM_OF_CUBES);     
-// }
 
 impl Chunk {
     fn uninitialized(sync_context: SynchronizationContext, programm_storage: ShaderStorage, debugger: Debugger) -> Chunk {
@@ -94,20 +73,19 @@ impl Chunk {
         };
         let texture = Texture::new_3d()
             .magnification_filter(FilterMode::Linear)
-            .minification_filter(FilterMode::Linear)
-            .wrap_mode_x(WrapMode::Repeat)
-            .wrap_mode_y(WrapMode::Repeat)
+            .minification_filter(MipMapFilterMode::TRILINEAR )
+            .wrap_mode_x(WrapMode::ClampToEdge)
+            .wrap_mode_y(WrapMode::ClampToEdge)
             // .empty(TEXTURE_DIM.x, TEXTURE_DIM.y, ImageFormat {
             //     lod: 0,
             //     format: gl::RED,
             //     internal_format: gl::R32F,
             //     data_type: gl::FLOAT
             // });
-            .wrap_mode_z(WrapMode::Repeat)
+            .wrap_mode_z(WrapMode::ClampToEdge)
             .empty(TEXTURE_DIM.x, TEXTURE_DIM.y, TEXTURE_DIM.z, img_format);
 
         sync_context.force_sync_with(AllBarrier);
-        let quad = SimpleQuad::new(programm_storage.clone()).unwrap();
 
         let march_parameters = MarchParameters {
             sync_context,
@@ -127,7 +105,9 @@ impl Chunk {
         };
 
         Chunk { 
+            quad: None,
             marcher,
+            is_sdf_top_level_dirty: false,
             debugger,
             march_parameters,
             collider_drawer: None,
@@ -157,18 +137,19 @@ impl Chunk {
     }
 
     pub fn draw(&mut self, draw_parameters: DrawParameters<'_>) {
-
-        // for x in 0..=2 {
-        //     for y in 0..=2 {
-        //         for z in 0..=2 {
-        //             self.debugger.draw(DebugPrimitive::Box { corner: (ivec3(x, y, z) * (NUM_OF_CUBES - IVec3::ONE)).as_vec3() * 0.5, 
-        //                 size: Vec3::ONE }, Color32::YELLOW);
-        //         }
-        //     }
-        // }
-        
-
+        self.actualise_texture();
         self.marcher.draw(draw_parameters, &mut self.march_parameters);
+    }
+
+    pub fn draw_distance_field(&mut self, params: DrawParameters<'_>, slice: f32) {
+        if self.quad.is_none() {
+            self.quad = Some(SimpleQuad::new(self.march_parameters.programm_storage.clone()).unwrap());
+        }
+
+        self.actualise_texture();
+
+        self.march_parameters.distance_field.bind(1);
+        self.quad.as_mut().unwrap().draw(params, TextureUnit(1), slice);
     }
 
     pub fn draw_debug_vew(&mut self, params: DrawParameters<'_>) {
@@ -185,11 +166,11 @@ impl Chunk {
             // self.bit_field.readback();
             self.march_parameters.collision_field.readback();
             self.is_collision_shape_dirty = false;
-            drawer.actualize(&self.march_parameters.collision_field);
+            drawer.actualize(&mut self.march_parameters.collision_field);
         };
         
         if actualize {
-            drawer.actualize(&self.march_parameters.collision_field);
+            drawer.actualize(&mut self.march_parameters.collision_field);
         }
         
         drawer.draw(params);
@@ -224,10 +205,15 @@ impl Chunk {
             }
 
             for triangle in triangles {
-                self.debugger.draw(DebugPrimitive::Triangle(triangle), Color32::GOLD);
                 let intersection: Option<Vec3> = ray_triangle_intersection(ray, &triangle);
+                let debug_enabled = self.debugger.is_debug_enabled();
+                if debug_enabled {
+                    self.debugger.draw(DebugPrimitive::Triangle(triangle.clone()), Color32::GOLD);
+                }
                 if intersection.is_some() {
-                    self.debugger.draw_width(DebugPrimitive::Triangle(triangle), Color32::BLUE, 2.);
+                    if debug_enabled {
+                        self.debugger.draw_width(DebugPrimitive::Triangle(triangle.clone()), Color32::BLUE, 2.);
+                    }
                     return intersection;
                 }
             }
@@ -238,6 +224,10 @@ impl Chunk {
 
     fn actualise_texture(&mut self) {
         self.march_parameters.sync_context.sync_with(ShaderImageAccessBarrier);
+        if self.is_sdf_top_level_dirty {
+            self.march_parameters.distance_field.generate_mips();
+            self.is_sdf_top_level_dirty = false;
+        }
     }
 
     pub fn apply_brush(&mut self, brush: &impl Brush) {
@@ -250,6 +240,8 @@ impl Chunk {
         // self.swap_buffer_is_actual = true;
         brush.apply(&mut self.march_parameters.distance_field);
 
+        self.is_sdf_top_level_dirty = true;
+        
         c.apply();
         // self.sync_context.sync_with(AllBarrier);
     }
