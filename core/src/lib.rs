@@ -15,7 +15,7 @@ macro_rules! GL {
             while (opengl_error != gl::NO_ERROR) {
                 dbg!(opengl_error);
                 // std::process::exit(1);
-                // panic!("opengl error occured");
+                panic!("opengl error occured");
                 opengl_error = unsafe {gl::GetError()};
             }
             res

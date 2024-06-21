@@ -3,9 +3,9 @@ use core::{buffers::buffer::{Usage, VertexBuffer}, context::synchronization_cont
 use egui_glfw_gl::{egui::Color32, gl};
 use glam::{ivec3, vec3, IVec3, Mat4, Vec3};
 
-use crate::{algorithms::{camera::Camera, grid_line_intersection::march_grid_by_ray, raycast::{ray_box_intersection, ray_triangle_intersection, IntersectionResult, Ray}}, application::{app_logick::NUM_OF_CUBES, support::{bounds::Bounds, brush::{chunk_to_texture_position, Brush}, debugger::{DebugPrimitive, Debugger}, shaders::{shaders_loader::ShaderStorage, FillCircleProgramm, ZeroFieldProgramm}, simple_quad::SimpleQuad}}};
+use crate::{algorithms::{camera::Camera, grid_line_intersection::march_grid_by_ray, raycast::{ray_box_intersection, ray_triangle_intersection, IntersectionResult, Ray}}, application::{app_logick::NUM_OF_CUBES, support::{bounds::Bounds, brush::{chunk_to_texture_position, Brush}, debugger::{DebugPrimitive, Debugger}, shaders::{shaders_loader::ShaderStorage, FillCircleProgramm, ModelProgramm, ShadedModelProgramm, ZeroFieldProgramm}, simple_quad::SimpleQuad}}};
 
-use super::{collision_shape::{CollisionShape, CollisionShapeDebugView}, marching_cubes::{block_marcher::BlockCubeMarcher, full_marcher::FullCubeMarcher, CubeMarcher, MarchParameters}, DrawParameters, ModelVertex};
+use super::{collision_shape::{CollisionShape, CollisionShapeDebugView}, field::CHUNK_SCALE_FACTOR, marching_cubes::{block_marcher::BlockCubeMarcher, full_marcher::FullCubeMarcher, CubeMarcher, MarchParameters}, DrawParameters, ModelVertex};
 
 #[derive(Uniforms)]
 #[for_shaders("resources/shader_sources/marching_cubes/fill_circle.compute")]
@@ -27,14 +27,58 @@ pub struct Chunk {
     collider_drawer: Option<CollisionShapeDebugView>
 }
 
+pub const TEXTURE_OFFSET: IVec3 = IVec3 {
+    x: 8,
+    y: 8,
+    z: 8
+};
+
+pub const TEXTURE_SIZE_DELTA: IVec3 = IVec3 {
+    x: TEXTURE_OFFSET.x * 2 + 1,
+    y: TEXTURE_OFFSET.y * 2 + 1,
+    z: TEXTURE_OFFSET.z * 2 + 1,
+};
+
+pub const TEXTURE_SIZE_DELTA_HALVED: Vec3 = Vec3 {
+    x: TEXTURE_SIZE_DELTA.x as f32 * 0.5,
+    y: TEXTURE_SIZE_DELTA.y as f32 * 0.5,
+    z: TEXTURE_SIZE_DELTA.z as f32 * 0.5,
+};
+
 pub const TEXTURE_DIM: IVec3 = IVec3 { 
-    x: NUM_OF_CUBES.x + 3, 
-    y: NUM_OF_CUBES.y + 3, 
-    z: NUM_OF_CUBES.z + 3 
+    x: NUM_OF_CUBES.x + TEXTURE_SIZE_DELTA.x, 
+    y: NUM_OF_CUBES.y + TEXTURE_SIZE_DELTA.y, 
+    z: NUM_OF_CUBES.z + TEXTURE_SIZE_DELTA.z 
 };
 
 
 const BLOCK_WRITE: bool = true;
+
+#[derive(Uniforms)]
+#[for_shaders("resources/shader_sources/drawing/display_model.vert", 
+              "resources/shader_sources/drawing/display_model.frag")]
+struct ModelDisplayUniform {
+    model: Mat4,
+    view: Mat4,
+    projection: Mat4,
+    light_direction: Vec3
+}
+
+#[derive(Uniforms)]
+#[for_shaders("resources/shader_sources/drawing/shaded_model.vert", 
+              "resources/shader_sources/drawing/shaded_model.frag")]
+struct ShadedModelDisplayUniform {
+    model: Mat4,
+    view: Mat4,
+    projection: Mat4,
+    chunk_scale_factor: Vec3,
+    light_direction: Vec3,
+    scalar_field: TextureUnit,
+    field_chunk_size_diff: IVec3,
+    surface_level: f32,
+    ao_max_dist: f32,
+    ao_falloff: f32,
+}
 
 
 fn fill_sphere(chunk: &mut Chunk, center_uvw: Vec3) {
@@ -95,6 +139,7 @@ impl Chunk {
             num_of_cubes: NUM_OF_CUBES,
             model_vertex_buffer,
             collision_field,
+            surface_level: 0.3,
             dirty_area: Bounds::empty(),
         };
 
@@ -130,15 +175,51 @@ impl Chunk {
     // }
 
     pub fn march(&mut self) {
-        self.actualise_texture();
-        self.marcher.march(&mut self.march_parameters);
+        self.before_march();
+        for step in 0..self.march_steps_count() {
+            self.march_step(step);
+        }
+        self.after_march();
+    }
+
+    pub fn march_steps_count(&self) -> usize {
+        self.marcher.march_steps_count()
+    } 
+
+    pub fn march_step(&mut self, step: usize) {
+        self.marcher.march(step, &mut self.march_parameters);
+    }
+
+    pub fn before_march(&mut self) {
+        self.march_parameters.sync_context.sync_with(ShaderImageAccessBarrier);
+    }
+
+    pub fn after_march(&mut self) {
         self.is_collision_shape_dirty = true;
         self.march_parameters.dirty_area = Bounds::empty();
     }
 
-    pub fn draw(&mut self, draw_parameters: DrawParameters<'_>) {
+    pub fn draw(&mut self, 
+        draw_parameters: DrawParameters<'_>, ao_max_dist: f32, ao_falloff: f32) {
         self.actualise_texture();
-        self.marcher.draw(draw_parameters, &mut self.march_parameters);
+
+        self.march_parameters.distance_field.bind(1);
+        self.march_parameters.programm_storage.access().get::<ShadedModelProgramm>().unwrap()
+        .bind().set_uniforms(ShadedModelDisplayUniform {
+            model: *draw_parameters.model,
+            view: draw_parameters.camera.view_matrix(),
+            projection: draw_parameters.camera.projection_matrix(),
+            chunk_scale_factor: CHUNK_SCALE_FACTOR,
+            scalar_field: 1.into(),
+            field_chunk_size_diff: TEXTURE_SIZE_DELTA,
+            surface_level: self.march_parameters.surface_level,
+            ao_falloff,
+            light_direction: vec3(1., 1., 0.5).normalize(),
+            ao_max_dist
+            
+        }).unwrap();
+
+        self.marcher.draw(&mut self.march_parameters);
     }
 
     pub fn draw_distance_field(&mut self, params: DrawParameters<'_>, slice: f32) {
@@ -230,9 +311,11 @@ impl Chunk {
         }
     }
 
-    pub fn apply_brush(&mut self, brush: &impl Brush) {
-        self.actualise_texture();
-        
+    pub fn before_brush(&mut self) {
+        self.march_parameters.sync_context.sync_with(ShaderImageAccessBarrier);
+    }
+
+    pub fn apply_brush(&mut self, brush: &impl Brush) {      
         
         let c = self.march_parameters.sync_context.dirty() | ShaderImageAccessBarrier;
         
@@ -240,7 +323,7 @@ impl Chunk {
         // self.swap_buffer_is_actual = true;
         brush.apply(&mut self.march_parameters.distance_field);
 
-        self.is_sdf_top_level_dirty = true;
+        self.is_sdf_top_level_dirty = !self.march_parameters.dirty_area.is_empty();
         
         c.apply();
         // self.sync_context.sync_with(AllBarrier);

@@ -21,8 +21,8 @@ const TOTAL_NUM_OF_CUBES: usize = (NUM_OF_CUBES.x * NUM_OF_CUBES.y * NUM_OF_CUBE
 
 
 #[derive(Uniforms)]
-#[for_shaders("resources/shader_sources/display_model.vert", 
-              "resources/shader_sources/display_model.frag")]
+#[for_shaders("resources/shader_sources/drawing/display_model.vert", 
+              "resources/shader_sources/drawing/display_model.frag")]
 pub struct ModelDisplayUniform {
     pub model: Mat4,
     pub view: Mat4,

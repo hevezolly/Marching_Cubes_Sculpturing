@@ -39,11 +39,16 @@ macro_rules! shader_ref {
 shader_ref!(FillCircleProgramm, Compute("resources/shader_sources/marching_cubes/fill_circle.compute"));
 shader_ref!(ZeroFieldProgramm, Compute("resources/shader_sources/marching_cubes/zero_field.compute"));
 
-shader_ref!(ModelProgramm, Model { vertex: "resources/shader_sources/display_model.vert", 
-                                   fragment: "resources/shader_sources/display_model.frag" });
+shader_ref!(ModelProgramm, Model { vertex: "resources/shader_sources/drawing/display_model.vert", 
+                                   fragment: "resources/shader_sources/drawing/display_model.frag" });
 
-shader_ref!(QuadProgramm, Model { vertex: "resources/shader_sources/display_quad.vert", 
-                                  fragment: "resources/shader_sources/display_quad.frag" });
+shader_ref!(QuadProgramm, Model { vertex: "resources/shader_sources/drawing/display_quad.vert", 
+                                  fragment: "resources/shader_sources/drawing/display_quad.frag" });
+
+shader_ref!(ShadedModelProgramm, Model {
+    vertex: "resources/shader_sources/drawing/shaded_model.vert",
+    fragment: "resources/shader_sources/drawing/shaded_model.frag"
+});
 
 pub fn dispatch_compute_for(total_size: IVec3, work_group: IVec3) {
     let dispatch = total_size.as_vec3() / work_group.as_vec3();

@@ -15,6 +15,7 @@ use egui_glfw_gl::egui::Stroke;
 use egui_glfw_gl::gl;
 use egui_glfw_gl::egui;
 use glam::vec4;
+use glam::BVec3;
 use glam::IVec3;
 use glam::Quat;
 use glam::Vec2;
@@ -38,18 +39,21 @@ use super::support::shaders::shaders_loader::ShaderStorage;
 struct DebugSettings {
     debug: bool,
     draw_model: bool,
-    draw_sdf: bool
+    draw_sdf: bool,
+    parity: BVec3,
 }
 
 impl Default for DebugSettings {
     fn default() -> Self {
-        Self { debug: false, draw_model: true, draw_sdf: true }
+        Self { debug: false, draw_model: true, draw_sdf: true, 
+            parity: BVec3 { x: true, y: true, z: true } }
     }
 }
 pub struct ExecutrionLogick {
     // command_buffer: Buffer,
     camera: PerspectiveCamera,
     sync_context: SynchronizationContext,
+    delta_time_ratio: f32,
     programm_storage: ShaderStorage,
     debugger: Debugger,
     field: Field,
@@ -57,6 +61,8 @@ pub struct ExecutrionLogick {
     strength: f32,
     debug: DebugSettings,
     remove: bool,
+    ao_max_dist: f32,
+    ao_falloff: f32,
     instant: Instant,
     // image: Image
     // programm: ShaderProgramm,
@@ -74,7 +80,7 @@ pub const fn ceil_div(val: usize, divider: usize) -> usize {
 
 pub const BLOCKY: bool = false;
 pub const FLAT_SHADING: bool = false;
-pub const CHUNK_SIZE: i32 = 64;
+pub const CHUNK_SIZE: i32 = 32;
 pub const NUM_OF_CUBES: IVec3 = IVec3 { x: CHUNK_SIZE, y: CHUNK_SIZE, z: CHUNK_SIZE };
 
 const FPS: usize = 60;
@@ -106,6 +112,7 @@ impl ExecutrionLogick {
         ExecutrionLogick { 
             debugger,
             camera, 
+            delta_time_ratio: 1.,
             slice: 0.,
             field,
             strength: 0.01,
@@ -114,6 +121,8 @@ impl ExecutrionLogick {
             sync_context,
             instant: Instant::now(),
             programm_storage,
+            ao_max_dist: 0.1,
+            ao_falloff: 1.,
         }
 
     }
@@ -128,6 +137,10 @@ impl ExecutrionLogick {
         println!("frame_time: {}ms", elapsed.as_millis());
         if elapsed < FRAME_TIME {
             sleep(FRAME_TIME - elapsed);
+            self.delta_time_ratio = 1.
+        }
+        else {
+            self.delta_time_ratio = (elapsed.as_nanos() / FRAME_TIME.as_nanos()) as f32;
         }
     }
 
@@ -182,18 +195,6 @@ impl ExecutrionLogick {
             let rot = Quat::from_axis_angle(Vec3::Y, ang_speed) * self.camera.transform.rotation();
             self.camera.transform.set_rotation(rot);
         }
-
-
-        // let hit = if let Some(mouse_pos) = input.pointer.hover_pos() {
-        //     let size = vec2(input.screen_rect.width(), input.screen_rect.height());
-        //     let viewport =  vec2(mouse_pos.x, mouse_pos.y) / size;
-        //     let ray = self.camera.viewport_point_to_ray(vec3(viewport.x, 1. - viewport.y, 0.));
-    
-        //     self.field.raycast(ray)
-        // }
-        // else {
-        //     None
-        // };
         
 
         if !egui_ctx.is_pointer_over_area() && input.pointer.button_down(egui::PointerButton::Primary) {
@@ -213,7 +214,10 @@ impl ExecutrionLogick {
                 
                 let brush = CircleBrush::new(
                 self.programm_storage.clone(),
-                position, 0.1, self.strength * if self.remove { -1. } else {1.}, 1.);
+                position, 
+                0.1, 
+                self.strength * self.delta_time_ratio * if self.remove { -1. } else {1.},
+                1.5);
 
                 // dbg!("HIT");
                 // self.debugger.draw(crate::application::support::debugger::DebugPrimitive::Point(position), Color32::RED);
@@ -238,14 +242,17 @@ impl ExecutrionLogick {
         self.camera.set_aspect_ratio(params.height as f32 / params.width as f32);
         
         if !self.debug.debug {
-            self.field.draw(&self.camera);
+            self.field.draw(&self.camera, self.ao_max_dist, self.ao_falloff);
         }
         else {
             if self.debug.draw_model {
-                self.field.draw(&self.camera);
+                self.field.draw(&self.camera, self.ao_max_dist, self.ao_falloff);
             }
             if self.debug.draw_sdf {
-                self.field.draw_distance_field(&self.camera, self.slice);
+                self.field.draw_distance_field(
+                    &self.camera, 
+                    self.slice, 
+                    self.debug.parity);
             }
         }
         // else {
@@ -270,6 +277,10 @@ impl ExecutrionLogick {
             ui.checkbox(&mut self.remove, "remove");
 
             ui.add_space(10.);
+
+            ui.add(egui::Slider::new(&mut self.ao_falloff, 0.0..=5.0).text("falloff"));
+            ui.add(egui::Slider::new(&mut self.ao_max_dist, 0.0..=1.0).text("max_dist"));
+            
             
             let mut new_debug = self.debug.debug;
             ui.checkbox(&mut new_debug, "debug");
@@ -285,6 +296,14 @@ impl ExecutrionLogick {
                 if self.debug.draw_sdf {
                     ui.add(egui::Slider::new(&mut self.slice, 0.0..=1.0).text("slice"));
                 }
+
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.debug.parity.x, "x");
+                    ui.checkbox(&mut self.debug.parity.y, "y");
+                    ui.checkbox(&mut self.debug.parity.z, "z");
+                });
+
+
             }
             // if ui.button("snapshot").clicked() {
             //     self.chunk.snapshot();

@@ -175,7 +175,9 @@ impl Buffer {
     pub fn create_uninitialized() -> Buffer {
         let mut id: u32 = 0;
         GL!(gl::GenBuffers(1, &mut id));
-        Buffer { id }
+        let buff = Buffer { id };
+        buff.bind(gl::SHADER_STORAGE_BUFFER);
+        buff
     }
 
     pub fn empty<Data: Sized>(elements_count: usize, hint: Usage) -> Buffer {

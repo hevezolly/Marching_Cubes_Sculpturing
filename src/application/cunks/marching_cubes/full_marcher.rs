@@ -4,7 +4,7 @@ use std::ffi::c_void;
 use egui_glfw_gl::gl;
 use glam::{vec3, IVec3, Mat4, Vec3};
 
-use crate::{algorithms::camera::Camera, application::{app_logick::{BLOCKY, FLAT_SHADING}, cunks::{collision_shape::COMPRESS_COLLISION, marching_cubes::WORK_GROUP, DrawParameters}, support::{shaders::{dispatch_compute_for, shaders_loader::ShaderType, ModelProgramm}, triangulation_table::static_triangle_buffer}}, shader_ref};
+use crate::{algorithms::camera::Camera, application::{app_logick::{BLOCKY, FLAT_SHADING}, cunks::{chunk::TEXTURE_OFFSET, collision_shape::COMPRESS_COLLISION, marching_cubes::WORK_GROUP, DrawParameters}, support::{shaders::{dispatch_compute_for, shaders_loader::ShaderType, ModelProgramm}, triangulation_table::static_triangle_buffer}}, shader_ref};
 
 use super::{CubeMarcher, MarchParameters, ModelVertex};
 
@@ -18,11 +18,12 @@ pub struct MarchingCubesUniforms {
     pub field_scale: Vec3,
     pub num_boxes: IVec3,
     pub surface_level: f32,
+    pub texture_sample_offset: IVec3,
 }
 
 #[derive(Uniforms)]
-#[for_shaders("resources/shader_sources/display_model.vert", 
-              "resources/shader_sources/display_model.frag")]
+#[for_shaders("resources/shader_sources/drawing/display_model.vert", 
+              "resources/shader_sources/drawing/display_model.frag")]
 struct ModelDisplayUniform {
     model: Mat4,
     view: Mat4,
@@ -60,7 +61,8 @@ pub struct FullCubeMarcher {
 
 impl CubeMarcher for FullCubeMarcher {
     
-    fn march<'a>(&mut self, parameters: &mut MarchParameters) {
+    fn march<'a>(&mut self, step: usize, parameters: &mut MarchParameters) {
+        assert!(step == 0);
         self.command_buffer.update_data(0,&[IndirectArrayCommand::default()]);
         parameters.sync_context.force_sync_with(BufferUpdateBarrier);
 
@@ -69,11 +71,12 @@ impl CubeMarcher for FullCubeMarcher {
         let triangle_buffer = static_triangle_buffer();
         parameters.programm_storage.access().get::<MarchingCubeProgramm>().unwrap()
         .bind().set_uniforms(MarchingCubesUniforms { 
+            texture_sample_offset: TEXTURE_OFFSET,
             scalar_field: 1.into(), 
             origin_offset: Vec3::ZERO, 
             field_scale: parameters.chunk_scale_factor, 
             num_boxes: parameters.num_of_cubes, 
-            surface_level: 0.3 }
+            surface_level: parameters.surface_level }
         ).unwrap()
         .set_buffer(&self.command_buffer, 1)
         .set_buffer(&parameters.model_vertex_buffer, 2)
@@ -87,18 +90,10 @@ impl CubeMarcher for FullCubeMarcher {
         c.apply();
     }
     
-    fn draw(&mut self, draw_params: DrawParameters<'_>, params: &mut MarchParameters) {
+    fn draw(&mut self, params: &mut MarchParameters) {
         params.sync_context.sync_with(ShaderStorageBarrier | CommandBarrier);
 
         params.model_vertex_buffer.bind();
-
-        params.programm_storage.access().get::<ModelProgramm>().unwrap()
-        .bind().set_uniforms(ModelDisplayUniform {
-            model: *draw_params.model,
-            view: draw_params.camera.view_matrix(),
-            projection: draw_params.camera.projection_matrix(),
-            light_direction: vec3(1., 1., -0.5).normalize()
-        }).unwrap();
 
         // GL!(gl::DrawArrays(gl::TRIANGLES, params.offset * 3, params.draw_count * 3));
         self.command_buffer.bind(gl::DRAW_INDIRECT_BUFFER);
@@ -106,6 +101,10 @@ impl CubeMarcher for FullCubeMarcher {
 
         params.model_vertex_buffer.unbind();
         self.command_buffer.unbind();
+    }
+    
+    fn march_steps_count(&self) -> usize {
+        1
     }
 }
 

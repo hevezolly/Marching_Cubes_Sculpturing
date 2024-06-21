@@ -1,4 +1,5 @@
 use core::{buffers::buffer::{Buffer, VertexBuffer}, context::synchronization_context::SynchronizationContext, textures::texture::Texture};
+use std::usize;
 
 use glam::{IVec3, Mat4, Vec3};
 
@@ -11,9 +12,9 @@ pub mod full_marcher;
 pub mod block_marcher;
 
 pub const WORK_GROUP: IVec3 = IVec3 {
-    x: 8,
-    y: 8,
-    z: 8,
+    x: 4,
+    y: 4,
+    z: 4,
 };
 
 pub struct MarchParameters {
@@ -25,12 +26,15 @@ pub struct MarchParameters {
     pub model_vertex_buffer: VertexBuffer<ModelVertex>,
     pub collision_field: CollisionShape,
     pub dirty_area: Bounds<IVec3>,
+    pub surface_level: f32
 }
 
 pub trait CubeMarcher {
 
-    fn march(&mut self, params: &mut MarchParameters);
-    fn draw<'a>(&mut self, draw_params: DrawParameters<'a>, params: &mut MarchParameters);
+    fn march_steps_count(&self) -> usize;
+
+    fn march(&mut self, step: usize, params: &mut MarchParameters);
+    fn draw<'a>(&mut self, params: &mut MarchParameters);
 
     // fn new(params: &MarchParameters) -> Self;
 }

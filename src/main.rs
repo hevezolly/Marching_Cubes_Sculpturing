@@ -16,6 +16,7 @@ extern crate macros;
 
 fn main() {
 
+    std::env::set_var("RUST_BACKTRACE", "1");
     let mut app = Application::new(WIN_WIDTH, WIN_HEIGHT);    
 
     app.init_debugging();

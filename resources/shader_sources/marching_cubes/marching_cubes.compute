@@ -8,7 +8,8 @@ layout (DISPATCH_SIZE) in;
 layout (r32f, binding = 0) uniform image3D scalarField;
 uniform vec3 origin_offset;
 uniform vec3 field_scale;
-uniform ivec3 num_boxes; // should not be more than dimenitions of scalarField - 2;
+uniform ivec3 texture_sample_offset;
+uniform ivec3 num_boxes;
 uniform float surface_level;
 
 
@@ -126,9 +127,9 @@ vec3 FlatNormal(vec3 p1, vec3 p2, vec3 p3) {
     return -normalize(cross((p2 - p1), (p3 - p1)));
 }
 
-float SampleField(ivec3 index) {
+float SampleField(ivec3 index, ivec3 tex_dim) {
 
-    index = clamp(index + ivec3(1, 1, 1), ivec3(0, 0, 0), num_boxes + ivec3(2, 2, 2));
+    index = clamp(index + texture_sample_offset, ivec3(0, 0, 0), tex_dim - ivec3(1));
     return imageLoad(scalarField, index).r;
 }
 
@@ -209,65 +210,66 @@ void main() {
 
     SamplePoint grid_sample_points[8];
 
+    ivec3 tex_dim = ivec3(imageSize(scalarField).xyz);
 
     for (int i = 0; i < 8; i++) 
     {
         grid_sample_points[i] = SamplePoint(
             VertexPosition(indecies[i]), 
             vec3(0., 0., 0.), 
-            SampleField(indecies[i])
+            SampleField(indecies[i], tex_dim)
         );
     }
 
 #ifndef FLAT_SHADING
 
     grid_sample_points[0].normal = Normal(
-        SampleField(indecies[0] - dx), grid_sample_points[1].sampleValue,
-        SampleField(indecies[0] - dy), grid_sample_points[4].sampleValue,
-        grid_sample_points[3].sampleValue, SampleField(indecies[0] + dz)
+        SampleField(indecies[0] - dx, tex_dim), grid_sample_points[1].sampleValue,
+        SampleField(indecies[0] - dy, tex_dim), grid_sample_points[4].sampleValue,
+        grid_sample_points[3].sampleValue, SampleField(indecies[0] + dz, tex_dim)
     );
 
     grid_sample_points[1].normal = Normal(
-        grid_sample_points[0].sampleValue, SampleField(indecies[1] + dx),
-        SampleField(indecies[1] - dy), grid_sample_points[5].sampleValue,
-        grid_sample_points[2].sampleValue, SampleField(indecies[1] + dz)
+        grid_sample_points[0].sampleValue, SampleField(indecies[1] + dx, tex_dim),
+        SampleField(indecies[1] - dy, tex_dim), grid_sample_points[5].sampleValue,
+        grid_sample_points[2].sampleValue, SampleField(indecies[1] + dz, tex_dim)
     );
 
     grid_sample_points[2].normal = Normal(
-        grid_sample_points[3].sampleValue, SampleField(indecies[2] + dx),
-        SampleField(indecies[2] - dy), grid_sample_points[6].sampleValue,
-        SampleField(indecies[2] - dz), grid_sample_points[1].sampleValue
+        grid_sample_points[3].sampleValue, SampleField(indecies[2] + dx, tex_dim),
+        SampleField(indecies[2] - dy, tex_dim), grid_sample_points[6].sampleValue,
+        SampleField(indecies[2] - dz, tex_dim), grid_sample_points[1].sampleValue
     );
 
     grid_sample_points[3].normal = Normal(
-        SampleField(indecies[3] - dx), grid_sample_points[2].sampleValue,
-        SampleField(indecies[3] - dy), grid_sample_points[7].sampleValue,
-        SampleField(indecies[3] - dz), grid_sample_points[0].sampleValue
+        SampleField(indecies[3] - dx, tex_dim), grid_sample_points[2].sampleValue,
+        SampleField(indecies[3] - dy, tex_dim), grid_sample_points[7].sampleValue,
+        SampleField(indecies[3] - dz, tex_dim), grid_sample_points[0].sampleValue
     );
 
 
     grid_sample_points[4].normal = Normal(
-        SampleField(indecies[4] - dx), grid_sample_points[5].sampleValue,
-        grid_sample_points[0].sampleValue, SampleField(indecies[4] + dy),
-        grid_sample_points[7].sampleValue, SampleField(indecies[4] + dz)
+        SampleField(indecies[4] - dx, tex_dim), grid_sample_points[5].sampleValue,
+        grid_sample_points[0].sampleValue, SampleField(indecies[4] + dy, tex_dim),
+        grid_sample_points[7].sampleValue, SampleField(indecies[4] + dz, tex_dim)
     );
 
     grid_sample_points[5].normal = Normal(
-        grid_sample_points[4].sampleValue, SampleField(indecies[5] + dx),
-        grid_sample_points[1].sampleValue, SampleField(indecies[5] + dy),
-        grid_sample_points[6].sampleValue, SampleField(indecies[5] + dz)
+        grid_sample_points[4].sampleValue, SampleField(indecies[5] + dx, tex_dim),
+        grid_sample_points[1].sampleValue, SampleField(indecies[5] + dy, tex_dim),
+        grid_sample_points[6].sampleValue, SampleField(indecies[5] + dz, tex_dim)
     );
 
     grid_sample_points[6].normal = Normal(
-        grid_sample_points[7].sampleValue, SampleField(indecies[6] + dx),
-        grid_sample_points[2].sampleValue, SampleField(indecies[6] + dy),
-        SampleField(indecies[6] - dz), grid_sample_points[5].sampleValue
+        grid_sample_points[7].sampleValue, SampleField(indecies[6] + dx, tex_dim),
+        grid_sample_points[2].sampleValue, SampleField(indecies[6] + dy, tex_dim),
+        SampleField(indecies[6] - dz, tex_dim), grid_sample_points[5].sampleValue
     );
 
     grid_sample_points[7].normal = Normal(
-        SampleField(indecies[7] - dx), grid_sample_points[6].sampleValue,
-        grid_sample_points[3].sampleValue, SampleField(indecies[7] + dy),
-        SampleField(indecies[7] - dz), grid_sample_points[4].sampleValue
+        SampleField(indecies[7] - dx, tex_dim), grid_sample_points[6].sampleValue,
+        grid_sample_points[3].sampleValue, SampleField(indecies[7] + dy, tex_dim),
+        SampleField(indecies[7] - dz, tex_dim), grid_sample_points[4].sampleValue
     );
 
 #endif

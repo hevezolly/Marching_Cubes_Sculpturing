@@ -4,7 +4,7 @@ use std::cmp::{max, min};
 use egui_glfw_gl::gl;
 use glam::{ivec3, vec2, IVec3, Mat4, Quat, Vec2, Vec3};
 
-use crate::{algorithms::{cordinates::RoundableToIVec3, transform}, application::support::{bounds::Bounds, brush::WORK_GROUP_FOR_BRUSH, shaders::shaders_loader::{ShaderStorage, ShaderType}}, shader_ref};
+use crate::{algorithms::{cordinates::RoundableToIVec3, transform}, application::{cunks::field::CHUNK_SCALE_FACTOR, support::{bounds::Bounds, brush::WORK_GROUP_FOR_BRUSH, shaders::shaders_loader::{ShaderStorage, ShaderType}}}, shader_ref};
 
 use super::{chunk_size_to_texture_size, chunk_to_texture_position, dispatch_compute_for, Brush};
 
@@ -76,7 +76,7 @@ impl Brush for CircleBrush {
     }
     
     fn bounds(&self) -> crate::application::support::bounds::Bounds<Vec3> {
-        let h_size = Vec3::ONE * self.radius;
+        let h_size = Vec3::ONE * self.radius + CHUNK_SCALE_FACTOR;
         Bounds::min_max(self.center - h_size, self.center + h_size)
     }
     
