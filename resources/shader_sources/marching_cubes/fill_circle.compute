@@ -27,7 +27,7 @@ void main() {
     vec3 center = center_uvw;
 
     // vec4 value = vec4(1., 1., 0., 1.);
-    vec4 value = vec4(clamp(length(center - texelCoord), 0., 1.), 0., 0., 0.);
+    vec4 value = vec4(clamp(length(center - texelCoord), 0., 0.5), 0., 0., 0.);
 	
     imageStore(imgOutput, ivec3(gl_GlobalInvocationID.xyz), value);
 }

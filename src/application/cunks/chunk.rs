@@ -73,6 +73,7 @@ struct ShadedModelDisplayUniform {
     projection: Mat4,
     chunk_scale_factor: Vec3,
     light_direction: Vec3,
+    ao_upper_edge: f32,
     scalar_field: TextureUnit,
     field_chunk_size_diff: IVec3,
     surface_level: f32,
@@ -200,7 +201,10 @@ impl Chunk {
     }
 
     pub fn draw(&mut self, 
-        draw_parameters: DrawParameters<'_>, ao_max_dist: f32, ao_falloff: f32) {
+        draw_parameters: DrawParameters<'_>, 
+        ao_max_dist: f32, 
+        ao_falloff: f32,
+        ao_upper_edge: f32) {
         self.actualise_texture();
 
         self.march_parameters.distance_field.bind(1);
@@ -214,6 +218,7 @@ impl Chunk {
             field_chunk_size_diff: TEXTURE_SIZE_DELTA,
             surface_level: self.march_parameters.surface_level,
             ao_falloff,
+            ao_upper_edge,
             light_direction: vec3(1., 1., 0.5).normalize(),
             ao_max_dist
             

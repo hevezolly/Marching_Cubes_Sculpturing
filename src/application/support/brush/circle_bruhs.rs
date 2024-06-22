@@ -76,7 +76,7 @@ impl Brush for CircleBrush {
     }
     
     fn bounds(&self) -> crate::application::support::bounds::Bounds<Vec3> {
-        let h_size = Vec3::ONE * self.radius + CHUNK_SCALE_FACTOR;
+        let h_size = Vec3::ONE * self.radius;
         Bounds::min_max(self.center - h_size, self.center + h_size)
     }
     
