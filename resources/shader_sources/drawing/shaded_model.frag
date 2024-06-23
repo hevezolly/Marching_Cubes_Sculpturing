@@ -263,6 +263,6 @@ void main() {
     vec3 color_shadow = vec3(0.09, 0.39, 0.63);
     vec3 lighted = color * light + color_shadow * (1 - light);
     
-    // FragColor = vec4(lighted * ambient_occlusion, 1.);
-    FragColor = vec4(ambient_occlusion.xxx, 1.);
+    FragColor = vec4(lighted * ambient_occlusion, 1.);
+    // FragColor = vec4(ambient_occlusion.xxx, 1.);
 }
