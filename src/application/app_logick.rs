@@ -61,9 +61,6 @@ pub struct ExecutrionLogick {
     strength: f32,
     debug: DebugSettings,
     remove: bool,
-    ao_max_dist: f32,
-    ao_falloff: f32,
-    ao_upper_edge: f32,
     instant: Instant,
     // image: Image
     // programm: ShaderProgramm,
@@ -115,16 +112,14 @@ impl ExecutrionLogick {
             camera, 
             delta_time_ratio: 1.,
             slice: 0.,
-            ao_upper_edge: 0.,
             field,
+            // ao_upper_edge: 0.1,
             strength: 0.01,
             debug: Default::default(),
             remove: false,
             sync_context,
             instant: Instant::now(),
             programm_storage,
-            ao_max_dist: 0.1,
-            ao_falloff: 1.,
         }
 
     }
@@ -219,7 +214,7 @@ impl ExecutrionLogick {
                 position, 
                 0.1, 
                 self.strength * self.delta_time_ratio * if self.remove { -1. } else {1.},
-                1.5);
+                1.);
 
                 // dbg!("HIT");
                 // self.debugger.draw(crate::application::support::debugger::DebugPrimitive::Point(position), Color32::RED);
@@ -244,11 +239,11 @@ impl ExecutrionLogick {
         self.camera.set_aspect_ratio(params.height as f32 / params.width as f32);
         
         if !self.debug.debug {
-            self.field.draw(&self.camera, self.ao_max_dist, self.ao_falloff, self.ao_upper_edge);
+            self.field.draw(&self.camera);
         }
         else {
             if self.debug.draw_model {
-                self.field.draw(&self.camera, self.ao_max_dist, self.ao_falloff, self.ao_upper_edge);
+                self.field.draw(&self.camera);
             }
             if self.debug.draw_sdf {
                 self.field.draw_distance_field(
@@ -278,12 +273,10 @@ impl ExecutrionLogick {
             
             ui.checkbox(&mut self.remove, "remove");
 
-            ui.add_space(10.);
+            ui.add_space(10.);    
 
-            ui.add(egui::Slider::new(&mut self.ao_falloff, 0.0..=5.0).text("falloff"));
-            ui.add(egui::Slider::new(&mut self.ao_max_dist, 0.0..=1.0).text("max_dist"));
-            ui.add(egui::Slider::new(&mut self.ao_upper_edge, 0.0..=1.0).text("ao_upper_edge"));
-            
+            // ui.add(egui::Slider::new(&mut self.ao_upper_edge, 0.0..=1.).text("ao_upper"));
+                    
             
             let mut new_debug = self.debug.debug;
             ui.checkbox(&mut new_debug, "debug");

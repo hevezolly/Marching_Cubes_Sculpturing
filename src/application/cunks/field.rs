@@ -123,10 +123,7 @@ impl Field {
         None
     }
 
-    pub fn draw(&mut self, camera: &impl Camera, 
-        ao_max_dist: f32, 
-        ao_falloff: f32,
-        ao_upper_edge: f32) {
+    pub fn draw(&mut self, camera: &impl Camera) {
         for (cord, chunk) in self.chunks.iter_mut() {
 
             
@@ -139,9 +136,7 @@ impl Field {
             let model = chunk_matrix(*cord);
                 
                 chunk.draw(DrawParameters { camera: camera, model: &model }, 
-                    TEXTURE_OFFSET.x as f32 * CHUNK_SCALE_FACTOR.x, 
-                    ao_falloff, 
-                ao_upper_edge);
+                    TEXTURE_OFFSET.x as f32 * CHUNK_SCALE_FACTOR.x);
         }
     }
 

@@ -11,8 +11,6 @@ uniform vec3 light_direction;
 uniform ivec3 field_chunk_size_diff;
 uniform float surface_level;
 uniform float ao_max_dist;
-uniform float ao_falloff;
-uniform float ao_upper_edge;
 
 out vec4 FragColor;
 
@@ -163,8 +161,8 @@ float perlin(vec2 p, float dim, float time) {
 
 
 vec3 random_hemisphere(vec3 dir, float seed, float seed2, float seed3) {
-    float u1 = mix(random(vec2(seed + 1.)), seed2, 0.1);
-    float u2 = mix(random(vec2(seed + 2.)), seed3, 0.1);
+    float u1 = mix(random(vec2(seed + 0.5)), seed2, 0.05);
+    float u2 = mix(random(vec2(seed + 1.)), seed3, 0.05);
 
     float theta = acos(u1);
     float phi = 2 * PI * u2;
@@ -176,11 +174,7 @@ vec3 random_hemisphere(vec3 dir, float seed, float seed2, float seed3) {
 
     vec3 result = vec3(x, y, z);
 
-    float proj = dot(dir, result);
-    if (proj < 0)
-        result -= 2 * dir * proj;
-
-    return normalize(result); 
+    return result * sign(dot(result, dir));
 
     // vec3 local_space = vec3(x, y, sqrt(max(0., 1 - u1)));
 
@@ -218,11 +212,11 @@ float ambient_occlusion(vec3 position, vec3 normal) {
 
     float ao = 0.;
 
-    const int rays = 48;
+    const float ao_falloff = 1.;
+    const int rays = 32;
     const int ray_steps = 4;
 
-    const float ao_upper_edge = 0.07;
-    // const float ao_falloff = 0.9;
+    // const float ao_upper_edge = 0.1;
 
     float step_len = ao_max_dist / ray_steps;
 
@@ -233,12 +227,13 @@ float ambient_occlusion(vec3 position, vec3 normal) {
     // float seed2 = random(position.yz);
 
     for (int i = 1; i <= rays; i++) {
-        vec3 dir = random_hemisphere(normal, i, seed, seed2);
         // vec3 dir = random_hemisphere(normal, i);
-
-        float min_dist = ao_max_dist;
-
+        vec3 dir = random_hemisphere(normal, i, seed, seed2);
         float weight = (dot(normal, dir) + 1. ) * 0.5;
+
+        float ao_influence = 0.;
+
+        // float count = 0.;
 
         for (int step = 1; step <= ray_steps; step++) {
             
@@ -247,39 +242,27 @@ float ambient_occlusion(vec3 position, vec3 normal) {
             vec3 p = to_texture_space(position + l * dir, tex_dim);
 
             float sample_val = max(0.,sample_field(p, tex_dim));
-            if (sample_val < ao_upper_edge) {
-                min_dist = min(min_dist, sample_val / ao_upper_edge);
-            }
-            
-
-            // min_dist = min(max(l - sample_val, 0.), min_dist);
+            // if (sample_val < ao_upper_edge) {
+            ao_influence = max(ao_influence, (l - sample_val) / ao_max_dist);
+            // ao_influence = ao_influence + max(l - sample_val, 0) / (ao_max_dist * ray_steps);
+                // count += 1;
+            // }
         }
-
-        ao += (ao_max_dist - min_dist) * weight / ao_max_dist * ao_falloff;
-
-        // ao += max(l - max(sample_value, 0.), 0.) / 
-        //     ao_max_dist * ao_falloff * weight;
+        ao += ao_influence * weight * ao_falloff;
     }
 
     return clamp(1. - ao / float(rays), 0., 1.);
 }
 
 void main() {
-    // FragColor = vec4(chunk_space_normal, 1.);
-
-    vec3 color = vec3(0.31, 0.65, 0.48);
+    vec3 color = vec3(0.66, 0.55, 0.25);
     float light = (dot(light_direction, normalize(world_normal)) + 1.) * 0.5 ;
 
-    // float seed = random(vec2(chunk_space_position.x, chunk_space_position.y) * chunk_space_position.z);
+    float ambient_occlusion = ambient_occlusion(chunk_space_position, normalize(world_normal));
     
-    // float seed = 1.;
-
-    float ambient_occlusion = ambient_occlusion(chunk_space_position, chunk_space_normal);
-    
-    vec3 color_shadow = vec3(0.09, 0.4, 0.63);
+    vec3 color_shadow = vec3(0.09, 0.39, 0.63);
     vec3 lighted = color * light + color_shadow * (1 - light);
     
-    FragColor = vec4(lighted * ambient_occlusion, 1.);
-    // FragColor = vec4(ambient_occlusion.xxx, 1.);
-    // FragColor = vec4(seed.xxx, 1.);
+    // FragColor = vec4(lighted * ambient_occlusion, 1.);
+    FragColor = vec4(ambient_occlusion.xxx, 1.);
 }
