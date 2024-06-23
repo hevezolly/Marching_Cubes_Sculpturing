@@ -7,7 +7,7 @@
 
 #### Description
 
-Project is based on [Marching Cubes](https://en.wikipedia.org/wiki/Marching_cubes) algorithm. All computation (except raycasting) is done on GPU inside Compute Shaders.
+Project is based on [Marching Cubes](https://en.wikipedia.org/wiki/Marching_cubes) algorithm. All computations (except raycasting) are done on GPU inside Compute Shaders.
 
 <img src="https://github.com/hevezolly/blobs/blob/master/showcase1.gif" width="600" height="600" />
 
