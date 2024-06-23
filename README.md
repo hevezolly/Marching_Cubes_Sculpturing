@@ -13,7 +13,7 @@ Project is based on [Marching Cubes](https://en.wikipedia.org/wiki/Marching_cube
 
 #### Shading
 
-Shading is based on [Gooch shading](https://en.wikipedia.org/wiki/Gooch_shading) with added Ambient Occlusion term. <br> Ambient occlusion calculation is based on SDF ambient occlusion with few tweaks. Hemisphere sampling direction is mixed with small portion of procedural blue noise. This is how pure ambient occlusion looks:
+Shading is based on [Gooch shading](https://en.wikipedia.org/wiki/Gooch_shading) with added Ambient Occlusion term. <br> Ambient occlusion calculation is based on SDF ambient occlusion with a few tweaks. Hemisphere sampling direction is mixed with small portion of procedural blue noise. This is how pure ambient occlusion looks:
 
   <img src="https://github.com/hevezolly/blobs/blob/master/ao.gif" width="300" height="300" />
 
