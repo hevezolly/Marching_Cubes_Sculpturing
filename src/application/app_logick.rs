@@ -28,9 +28,14 @@ use glam::Vec4Swizzles;
 use crate::algorithms::camera::Camera;
 use crate::algorithms::camera::perspective::PerspectiveCamera;
 use crate::application::support::brush::circle_bruhs::CircleBrush;
+use crate::application::support::brush::Brush;
+use crate::application::support::brush::BrushApplicationParameters;
 
 use super::cunks::field::Field;
 use super::support::bounds::Bounds;
+use super::support::brush::circle_bruhs::InverseCircleBrush;
+use super::support::brush::flatten_brush::FlattenBrush;
+use super::support::brush::BrushSettings;
 use super::support::camera_ref::CameraRef;
 use super::support::debugger::Debugger;
 use super::support::shaders::shaders_loader::ShaderStorage;
@@ -58,9 +63,9 @@ pub struct ExecutrionLogick {
     debugger: Debugger,
     field: Field,
     slice: f32,
-    strength: f32,
+    brushes: Vec<Arc<Mutex<dyn BrushSettings>>>,
+    selected_brush: usize,
     debug: DebugSettings,
-    remove: bool,
     instant: Instant,
     // image: Image
     // programm: ShaderProgramm,
@@ -78,12 +83,18 @@ pub const fn ceil_div(val: usize, divider: usize) -> usize {
 
 pub const BLOCKY: bool = false;
 pub const FLAT_SHADING: bool = false;
-pub const CHUNK_SIZE: i32 = 32;
+pub const CHUNK_SIZE: i32 = 48;
 pub const NUM_OF_CUBES: IVec3 = IVec3 { x: CHUNK_SIZE, y: CHUNK_SIZE, z: CHUNK_SIZE };
 
 const FPS: usize = 60;
 
 const FRAME_TIME: Duration = Duration::from_millis(1000 / FPS as u64);
+
+macro_rules! brush_vec {
+    [$($y:expr),+$(,)?] => (
+        vec![$(Arc::new(Mutex::new($y)) as Arc<Mutex<dyn BrushSettings>>),+]
+    )
+}
 
 impl ExecutrionLogick {
     pub fn init() -> ExecutrionLogick {
@@ -107,16 +118,28 @@ impl ExecutrionLogick {
 
         let field = Field::new(sync_context.clone(), programm_storage.clone(), debugger.clone());
 
+        let brushes = brush_vec![
+            CircleBrush::new(programm_storage.clone()),
+            InverseCircleBrush::new(programm_storage.clone()),
+            
+            // not working properly :(
+            FlattenBrush::new(sync_context.clone(), programm_storage.clone()),
+        ];
+
+        // let brushes = brush_vec!(CircleBrush::new(programm_storage.clone()),
+        //         InverseCircleBrush::new(programm_storage.clone()),
+        // );
         ExecutrionLogick { 
+
             debugger,
             camera, 
             delta_time_ratio: 1.,
             slice: 0.,
             field,
+            brushes,
+            selected_brush: 0,
             // ao_upper_edge: 0.1,
-            strength: 0.01,
             debug: Default::default(),
-            remove: false,
             sync_context,
             instant: Instant::now(),
             programm_storage,
@@ -194,7 +217,8 @@ impl ExecutrionLogick {
         }
         
 
-        if !egui_ctx.is_pointer_over_area() && input.pointer.button_down(egui::PointerButton::Primary) {
+        if !egui_ctx.is_pointer_over_area() && 
+            input.pointer.button_down(egui::PointerButton::Primary) {
 
             let hit = if let Some(mouse_pos) = input.pointer.hover_pos() {
                 let size = vec2(input.screen_rect.width(), input.screen_rect.height());
@@ -208,23 +232,17 @@ impl ExecutrionLogick {
             };
 
             if let Some(position) = hit {
-                
-                let brush = CircleBrush::new(
-                self.programm_storage.clone(),
-                position, 
-                0.1, 
-                self.strength * self.delta_time_ratio * if self.remove { -1. } else {1.},
-                1.);
 
-                // dbg!("HIT");
-                // self.debugger.draw(crate::application::support::debugger::DebugPrimitive::Point(position), Color32::RED);
+                let settings = BrushApplicationParameters::new(
+                    position, self.delta_time_ratio
+                );
+
+                let brush = Brush::new(
+                    self.brushes[self.selected_brush].clone(),
+                    settings
+                );
+
                 self.field.apply_brush(&brush);
-                    // self.field.march();
-
-
-                    // let start = Instant::now();
-                    // GL!(gl::Finish());
-                    // dbg!(start.elapsed());
             }
         }
     }
@@ -252,11 +270,6 @@ impl ExecutrionLogick {
                     self.debug.parity);
             }
         }
-        // else {
-        //     self.field.draw_3d_texture(&self.camera, self.slice);
-        //     self.field.draw_debug_vew(DrawParameters { camera: &self.camera, model: &Mat4::IDENTITY });
-        // }
-        // self.chunk.draw_3d_texture(&self.camera, self.slice);
 
 
         GL!(gl::Disable(gl::DEPTH_TEST));
@@ -265,17 +278,26 @@ impl ExecutrionLogick {
     pub fn draw_ui(&mut self, egui_ctx: &CtxRef, params: Parameters) {
         egui::Window::new("Settings").show(egui_ctx, |ui| {
 
-            let mut fov = self.camera.fov();
-            ui.add(egui::Slider::new(&mut fov, 1.0..=179.).text("fov"));
-            self.camera.set_fov(fov);
+            // let mut fov = self.camera.fov();
+            // ui.add(egui::Slider::new(&mut fov, 1.0..=179.).text("fov"));
+            // self.camera.set_fov(fov);
 
-            ui.add(egui::Slider::new(&mut self.strength, 0.0..=0.1).text("strength"));
-            
-            ui.checkbox(&mut self.remove, "remove");
+            egui::ComboBox::from_label("Select brush")
+                .selected_text(format!("{:?}", self.brushes[self.selected_brush].lock().unwrap().brush_name()))
+                .show_ui(ui, |ui| {
+                    for i in 0..self.brushes.len() {
+                        ui.selectable_value(&mut self.selected_brush, 
+                            i, self.brushes[i].lock().unwrap().brush_name());
+                    }
+                }
+            );
 
+            ui.add_space(10.);
+
+
+            ui.label(self.brushes[self.selected_brush].lock().unwrap().brush_name());
+            self.brushes[self.selected_brush].lock().unwrap().display_ui(ui);
             ui.add_space(10.);    
-
-            // ui.add(egui::Slider::new(&mut self.ao_upper_edge, 0.0..=1.).text("ao_upper"));
                     
             
             let mut new_debug = self.debug.debug;
@@ -301,40 +323,9 @@ impl ExecutrionLogick {
 
 
             }
-            // if ui.button("snapshot").clicked() {
-            //     self.chunk.snapshot();
-            // }
         });
 
-        // if self.debug {
-            self.debugger.perform_draw(&egui_ctx, &self.camera);
-        // }
-
-        // if egui_ctx.input().pointer.button_down(egui::PointerButton::Primary) {
-        //     if let Some(mouse_pos) = egui_ctx.input().pointer.hover_pos() {
-        //         let screen_size = vec2(egui_ctx.input().screen_rect.width(), egui_ctx.input().screen_rect.height());
-        //         let viewport =  vec2(mouse_pos.x, mouse_pos.y) / screen_size;
-        //         let ray = self.camera.viewport_point_to_ray(vec3(viewport.x, 1. - viewport.y, 0.));
-
-        //         let scale = Vec3::ONE;// / NUM_OF_CUBES.as_vec3();
-
-        //         if let Some(position) = self.chunk.raycast(ray, |center, size| 
-        //                 draw_box(&self.camera, &egui_ctx, center, size, screen_size, Color32::RED)) {
-        //             draw_point(&self.camera, &egui_ctx, position, screen_size);
-        //             let brush = CircleBrush::new(
-        //                 self.programm_storage.clone(),
-        //                 position, 0.1, -0.01, 1.);
-        //             self.chunk.apply_brush(&brush);
-        //             self.chunk.march(true);
-
-
-        //             // let start = Instant::now();
-        //             // GL!(gl::Finish());
-        //             // dbg!(start.elapsed());
-        //             // self.draw_point(egui_ctx, position, size);
-        //         }
-        //     }
-        // }
+        self.debugger.perform_draw(&egui_ctx, &self.camera);
     }
 }
 

@@ -62,38 +62,6 @@ enum ContextOp {
     SetDirty
 }
 
-pub struct BitwiseContext<'a> {
-    context: MutexGuard<'a, Context>,
-    operation: ContextOp,
-    value: GLbitfield,
-    applied: bool
-}
-
-impl<'a> BitwiseContext<'a> {
-
-    pub fn apply(mut self) {
-        match self.operation {
-            ContextOp::Sync => self.context.sync(self.value),
-            ContextOp::SetDirty => self.context.set_dirty(self.value),
-        };
-    }
-}
-
-impl<'a, T: MemoryBarrier> BitOrAssign<T> for BitwiseContext<'a> {
-    fn bitor_assign(&mut self, rhs: T) {
-        self.value |= rhs.bit_field();
-    }
-}
-
-impl<'a, T:MemoryBarrier> BitOr<T> for BitwiseContext<'a> {
-    type Output = Self;
-
-    fn bitor(mut self, rhs: T) -> Self::Output {
-        self |= rhs;
-        self
-    }
-}
-
 impl Context {
     pub fn sync(&mut self, bits: GLbitfield) {
         let to_sync = self.value & bits;
@@ -118,29 +86,18 @@ impl SynchronizationContext {
         SynchronizationContext {context: Arc::new(Mutex::new(Context { value: 0 }))}
     }
 
-    pub fn dirty(&self) -> BitwiseContext {
-        BitwiseContext { context: self.context.lock().unwrap(), operation: ContextOp::SetDirty, value: 0, applied: false }
+    pub fn dirty<T: MemoryBarrier>(&self, val: T) {
+        self.context.lock().unwrap().set_dirty(val.bit_field());
     }
 
-    pub fn dirty_mut(&mut self) -> BitwiseContext {
-        BitwiseContext { context: self.context.lock().unwrap(), operation: ContextOp::SetDirty, value: 0, applied: false }
+    pub fn sync<T: MemoryBarrier>(&self, val: T) {
+        self.context.lock().unwrap().sync(val.bit_field());
     }
 
-    pub fn dirty_with<T: MemoryBarrier>(&self, val: T) {
-        (self.dirty() | val).apply()
-    }
-
-    pub fn sync(&self) -> BitwiseContext {
-        BitwiseContext { context: self.context.lock().unwrap(), operation: ContextOp::Sync, value: 0, applied: false }
-    }
-
-    pub fn sync_with<T: MemoryBarrier>(&self, val: T) {
-        (self.sync() | val).apply()
-    }
-
-    pub fn force_sync_with<T: MemoryBarrier>(&self, val: T) {
-        let val = MemBarrierBits(val.bit_field());
-        self.dirty_with(val);
-        self.sync_with(val);
+    pub fn force_sync<T: MemoryBarrier>(&self, val: T) {
+        let mut context = self.context.lock().unwrap();
+        let bits = val.bit_field();
+        context.set_dirty(bits);
+        context.sync(bits);
     }
 }

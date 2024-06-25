@@ -153,7 +153,7 @@ impl Field {
         }
     }
 
-    pub fn apply_brush(&mut self, brush: &impl Brush) {
+    pub fn apply_brush(&mut self, brush: &Brush) {
 
         let bounds = brush.bounds();
 
@@ -179,8 +179,8 @@ impl Field {
             for cord in &cords {
                 let chunk = self.chunks.get_mut(cord).unwrap();
                 let chunk_pos = chunk_position(*cord);
-                let chunk_local_brush = brush.transformed(-chunk_pos, 1.);
-                chunk.apply_brush(&chunk_local_brush)
+                let mut chunk_local_brush = brush.transformed(-chunk_pos, Vec3::ONE);
+                chunk.apply_brush(&mut chunk_local_brush)
             }
     
             let mut max_march_steps = 0;
@@ -217,9 +217,9 @@ impl Field {
     
                 if let Some(chunk) = self.chunks.get_mut(&cord) {
                     let chunk_pos = chunk_position(cord);
-                    let chunk_local_brush = brush.transformed(-chunk_pos, 1.);
+                    let mut chunk_local_brush = brush.transformed(-chunk_pos, Vec3::ONE);
                     chunk.before_brush();
-                    chunk.apply_brush(&chunk_local_brush);
+                    chunk.apply_brush(&mut chunk_local_brush);
     
                     chunk.march();
                 }

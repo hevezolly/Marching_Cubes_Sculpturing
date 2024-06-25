@@ -1,12 +1,10 @@
 use glam::{Vec3, Quat, Mat4};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Transform {
     position: Vec3,
     rotation: Quat,
-    scale: Vec3,
-    matrix: Mat4,
-    inverse_matrix: Mat4,
+    scale: Vec3
 }
 
 impl Default for Transform {
@@ -17,27 +15,20 @@ impl Default for Transform {
 
 impl Transform {
     pub fn new(position: Vec3, rotation: Quat, scale: Vec3) -> Transform {
-        let mut result = Transform{position, 
+        Transform{position, 
             rotation, 
-            scale, 
-            matrix: Mat4::IDENTITY, 
-            inverse_matrix: Mat4::IDENTITY};
-        result.recalculate_matrix();
-        result
+            scale}
+    }
+
+    pub fn from_position(position: Vec3) -> Transform {
+        Transform::new(position, Quat::IDENTITY, Vec3::ONE)
     }
 
     pub const IDENTITY: Transform = Transform {
         position: Vec3::ZERO,
         rotation: Quat::IDENTITY,
-        scale: Vec3::ONE,
-        matrix: Mat4::IDENTITY,
-        inverse_matrix: Mat4::IDENTITY
+        scale: Vec3::ONE
     };
-
-    fn recalculate_matrix(&mut self) {
-        self.matrix = Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.position);
-        self.inverse_matrix = self.matrix.inverse();
-    } 
 
     pub fn position(&self) -> Vec3 {
         self.position
@@ -53,23 +44,19 @@ impl Transform {
 
     pub fn set_position(&mut self, translation: Vec3) {
         self.position = translation;
-        self.recalculate_matrix();
     }
 
     pub fn set_rotation(&mut self, rotation: Quat) {
         self.rotation = rotation;
-        self.recalculate_matrix();
     }
 
     pub fn set_scale(&mut self, scale: Vec3) {
         self.scale = scale;
-        self.recalculate_matrix();
     }
 
     pub fn set_position_and_rotation(&mut self, translation: Vec3, rotation: Quat) {
         self.position = translation;
         self.rotation = rotation;
-        self.recalculate_matrix();
     }
 
     pub fn forward(&self) -> Vec3 {
@@ -85,10 +72,10 @@ impl Transform {
     }
 
     pub fn matrix(&self) -> Mat4 {
-        self.matrix
+        Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.position)
     }
 
     pub fn inverse_matrix(&self) -> Mat4 {
-        self.inverse_matrix
+        self.matrix().inverse()
     }
 }

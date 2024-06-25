@@ -90,11 +90,10 @@ fn fill_sphere(chunk: &mut Chunk, center_uvw: Vec3) {
         center_uvw: chunk_to_texture_position(center_uvw, TEXTURE_DIM),
     }).unwrap();
 
-    let c = chunk.march_parameters.sync_context.dirty() | ShaderImageAccessBarrier;
+    chunk.march_parameters.sync_context.dirty(ShaderImageAccessBarrier);
     GL!(gl::DispatchCompute((TEXTURE_DIM.x) as u32, 
         (TEXTURE_DIM.y) as u32, 
         (TEXTURE_DIM.z) as u32));
-    c.apply();
 
     chunk.is_sdf_top_level_dirty = true;
 
@@ -129,7 +128,7 @@ impl Chunk {
             .wrap_mode_z(WrapMode::ClampToEdge)
             .empty(TEXTURE_DIM.x, TEXTURE_DIM.y, TEXTURE_DIM.z, img_format);
 
-        sync_context.force_sync_with(AllBarrier);
+        sync_context.force_sync(AllBarrier);
 
         let march_parameters = MarchParameters {
             sync_context,
@@ -191,7 +190,7 @@ impl Chunk {
     }
 
     pub fn before_march(&mut self) {
-        self.march_parameters.sync_context.sync_with(ShaderImageAccessBarrier);
+        self.march_parameters.sync_context.sync(ShaderImageAccessBarrier);
     }
 
     pub fn after_march(&mut self) {
@@ -243,7 +242,7 @@ impl Chunk {
         });
         if self.is_collision_shape_dirty {
             actualize = true;
-            self.march_parameters.sync_context.sync_with(ShaderStorageBarrier);
+            self.march_parameters.sync_context.sync(ShaderStorageBarrier);
             // self.bit_field.readback();
             self.march_parameters.collision_field.readback();
             self.is_collision_shape_dirty = false;
@@ -261,7 +260,7 @@ impl Chunk {
     pub fn raycast(&mut self, ray: Ray) -> Option<Vec3> {
 
         if self.is_collision_shape_dirty {
-            self.march_parameters.sync_context.sync_with(ShaderStorageBarrier);
+            self.march_parameters.sync_context.sync(ShaderStorageBarrier);
             // self.bit_field.readback();
             self.march_parameters.collision_field.readback();
             self.is_collision_shape_dirty = false;
@@ -304,7 +303,7 @@ impl Chunk {
     }
 
     fn actualise_texture(&mut self) {
-        self.march_parameters.sync_context.sync_with(ShaderImageAccessBarrier);
+        self.march_parameters.sync_context.sync(ShaderImageAccessBarrier);
         if self.is_sdf_top_level_dirty {
             self.march_parameters.distance_field.generate_mips();
             self.is_sdf_top_level_dirty = false;
@@ -312,20 +311,18 @@ impl Chunk {
     }
 
     pub fn before_brush(&mut self) {
-        self.march_parameters.sync_context.sync_with(ShaderImageAccessBarrier);
+        self.march_parameters.sync_context.sync(ShaderImageAccessBarrier);
     }
 
-    pub fn apply_brush(&mut self, brush: &impl Brush) {      
+    pub fn apply_brush(&mut self, brush: &mut Brush) {      
         
-        let c = self.march_parameters.sync_context.dirty() | ShaderImageAccessBarrier;
         
         self.march_parameters.dirty_area.encapsulate_other(&brush.chunk_space_cords(NUM_OF_CUBES));
         // self.swap_buffer_is_actual = true;
         brush.apply(&mut self.march_parameters.distance_field);
+        self.march_parameters.sync_context.dirty(ShaderImageAccessBarrier);
 
         self.is_sdf_top_level_dirty = !self.march_parameters.dirty_area.is_empty();
-        
-        c.apply();
-        // self.sync_context.sync_with(AllBarrier);
+        // self.sync_context.sync(AllBarrier);
     }
 }

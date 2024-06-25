@@ -4,7 +4,7 @@ use std::ffi::c_void;
 use egui_glfw_gl::gl;
 use glam::{vec3, IVec3, Mat4, Vec3};
 
-use crate::{algorithms::camera::Camera, application::{app_logick::{BLOCKY, FLAT_SHADING}, cunks::{chunk::TEXTURE_OFFSET, collision_shape::COMPRESS_COLLISION, marching_cubes::WORK_GROUP, DrawParameters}, support::{shaders::{dispatch_compute_for, shaders_loader::ShaderType, ModelProgramm}, triangulation_table::static_triangle_buffer}}, shader_ref};
+use crate::{algorithms::camera::Camera, application::{app_logick::{BLOCKY, FLAT_SHADING}, cunks::{chunk::TEXTURE_OFFSET, collision_shape::COMPRESS_COLLISION, marching_cubes::WORK_GROUP, DrawParameters}, support::{shaders::{dispatch_compute_for, shaders_loader::ShaderType, ModelProgramm}, triangulation_table::static_triangle_buffer}}, dispatch_size, shader_ref};
 
 use super::{CubeMarcher, MarchParameters};
 
@@ -36,16 +36,10 @@ shader_ref!(MarchingCubeProgramm, ShaderType::Compute("resources/shader_sources/
     if BLOCKY {"BLOCKY"} else {""},
     "BLOCK_UPDATE",
     if FLAT_SHADING {"FLAT_SHADING"} else {""},
-    format!("DISPATCH_SIZE local_size_x = {}, local_size_y = {}, local_size_z = {}",
-    WORK_GROUP.x,
-    WORK_GROUP.y,
-    WORK_GROUP.z));
+    dispatch_size!(WORK_GROUP));
 
 shader_ref!(MarchingCubeIndexerProgramm, ShaderType::Compute("resources/shader_sources/marching_cubes/marching_cubes_indexer.compute"),
-    format!("DISPATCH_SIZE local_size_x = {}, local_size_y = {}, local_size_z = {}",
-    WORK_GROUP.x,
-    WORK_GROUP.y,
-    WORK_GROUP.z));
+    dispatch_size!(WORK_GROUP));
 
 #[derive(Uniforms)]
 #[for_shaders("resources/shader_sources/marching_cubes/marching_cubes.compute")]
@@ -79,7 +73,7 @@ impl CubeMarcher for BlockCubeMarcher {
          if step == 0 {
 
              self.command_buffer.update_data(0,&[IndirectElementsCommand::default()]);
-             params.sync_context.force_sync_with(BufferUpdateBarrier);
+             params.sync_context.force_sync(BufferUpdateBarrier);
      
              params.distance_field.bind_image(1, TextureAccess::Read);
      
@@ -100,28 +94,25 @@ impl CubeMarcher for BlockCubeMarcher {
              .set_buffer(&self.counter_buffer, 4)
              .set_buffer(params.collision_field.buffer(), 5);
              
-             let c = params.sync_context.dirty() | ShaderStorageBarrier;
-             dispatch_compute_for(params.dirty_area.size(), WORK_GROUP);
-             c.apply();
+            let c = params.sync_context.dirty(ShaderStorageBarrier);
+            dispatch_compute_for(params.dirty_area.size(), WORK_GROUP);
          }
 
          else if step == 1 {
             
-             params.sync_context.sync_with(ShaderStorageBarrier);
-     
-             params.programm_storage.access().get::<MarchingCubeIndexerProgramm>().unwrap()
-             .bind().set_uniforms(MarchingCubesIndexerUniforms {
-                 num_boxes: params.num_of_cubes,
-             }).unwrap()
-             .set_buffer(&self.counter_buffer, 4)
-             .set_buffer(&self.model_index_buffer, 2)
-             .set_buffer(&self.command_buffer, 1);
-     
-             let c = params.sync_context.dirty() | ShaderStorageBarrier | CommandBarrier;
-     
-             dispatch_compute_for(params.num_of_cubes, WORK_GROUP);
-             
-             c.apply();
+            params.sync_context.sync(ShaderStorageBarrier);
+    
+            params.programm_storage.access().get::<MarchingCubeIndexerProgramm>().unwrap()
+            .bind().set_uniforms(MarchingCubesIndexerUniforms {
+                num_boxes: params.num_of_cubes,
+            }).unwrap()
+            .set_buffer(&self.counter_buffer, 4)
+            .set_buffer(&self.model_index_buffer, 2)
+            .set_buffer(&self.command_buffer, 1);
+    
+            params.sync_context.dirty(ShaderStorageBarrier | CommandBarrier);
+    
+            dispatch_compute_for(params.num_of_cubes, WORK_GROUP);
          }
  
  
@@ -130,7 +121,7 @@ impl CubeMarcher for BlockCubeMarcher {
     fn draw(&mut self,
             params: &mut MarchParameters) {
 
-        params.sync_context.sync_with(ShaderStorageBarrier | CommandBarrier);
+        params.sync_context.sync(ShaderStorageBarrier | CommandBarrier);
 
         params.model_vertex_buffer.bind();
         self.model_index_buffer.bind_as_index();

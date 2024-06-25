@@ -35,6 +35,16 @@ macro_rules! shader_ref {
     };
 }
 
+#[macro_export]
+macro_rules! dispatch_size {
+    ($i:ident) => {
+        format!("DISPATCH_SIZE local_size_x = {}, local_size_y = {}, local_size_z = {}",
+            $i.x,
+            $i.y,
+            $i.z)
+    };
+}
+
 
 shader_ref!(FillCircleProgramm, Compute("resources/shader_sources/marching_cubes/fill_circle.compute"));
 shader_ref!(ZeroFieldProgramm, Compute("resources/shader_sources/marching_cubes/zero_field.compute"));

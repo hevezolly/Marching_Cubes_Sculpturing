@@ -97,7 +97,8 @@ pub fn derive_uniforms_internal(item: TokenStream) -> TokenStream {
         for field_name in uniform_names.iter() {
             if let Some(uniform) = uniforms.iter().find(|u| &u.name == field_name) {
                 if used_uniforms.contains(&uniform.name) {
-                    panic!("uniform '{}' is defined multiple times", uniform.name)
+                    continue;
+                    // panic!("uniform '{}' is defined multiple times", uniform.name)
                 }
 
 
@@ -166,8 +167,11 @@ fn get_file_uniforms(parsed_item: &ItemStruct) -> Option<Vec<UniformDef>> {
             let source = fs::read_to_string(path).unwrap();
     
             for uniform in source.lines().filter_map(|l| UniformDef::try_from_line(l, name)) {
-                if let Some(UniformDef { name, rust_type: _, optional: _ }) = result.iter().find(|f| f.name == uniform.name) {
-                    panic!("uniform '{}' is declared multiple times", name);
+                if let Some(UniformDef { name, rust_type, optional: _ }) = result.iter().find(|f| f.name == uniform.name) {
+                    if uniform.rust_type.to_string() != rust_type.to_string() {
+                        panic!("uniform '{}' is declared multiple times with different types", name);
+                    }
+                    continue;
                 }
                 result.push(uniform);
             }

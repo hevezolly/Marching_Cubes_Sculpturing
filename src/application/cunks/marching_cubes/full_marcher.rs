@@ -4,7 +4,7 @@ use std::ffi::c_void;
 use egui_glfw_gl::gl;
 use glam::{vec3, IVec3, Mat4, Vec3};
 
-use crate::{algorithms::camera::Camera, application::{app_logick::{BLOCKY, FLAT_SHADING}, cunks::{chunk::TEXTURE_OFFSET, collision_shape::COMPRESS_COLLISION, marching_cubes::WORK_GROUP, DrawParameters}, support::{shaders::{dispatch_compute_for, shaders_loader::ShaderType, ModelProgramm}, triangulation_table::static_triangle_buffer}}, shader_ref};
+use crate::{algorithms::camera::Camera, application::{app_logick::{BLOCKY, FLAT_SHADING}, cunks::{chunk::TEXTURE_OFFSET, collision_shape::COMPRESS_COLLISION, marching_cubes::WORK_GROUP, DrawParameters}, support::{shaders::{dispatch_compute_for, shaders_loader::ShaderType, ModelProgramm}, triangulation_table::static_triangle_buffer}}, dispatch_size, shader_ref};
 
 use super::{CubeMarcher, MarchParameters, ModelVertex};
 
@@ -50,10 +50,7 @@ shader_ref!(MarchingCubeProgramm, ShaderType::Compute("resources/shader_sources/
     if COMPRESS_COLLISION {"COMPRESS_COLLISION"} else {""},
     if BLOCKY {"BLOCKY"} else {""},
     if FLAT_SHADING {"FLAT_SHADING"} else {""},
-    format!("DISPATCH_SIZE local_size_x = {}, local_size_y = {}, local_size_z = {}",
-    WORK_GROUP.x,
-    WORK_GROUP.y,
-    WORK_GROUP.z));
+    dispatch_size!(WORK_GROUP));
 
 pub struct FullCubeMarcher {
     command_buffer: Buffer,
@@ -64,7 +61,7 @@ impl CubeMarcher for FullCubeMarcher {
     fn march<'a>(&mut self, step: usize, parameters: &mut MarchParameters) {
         assert!(step == 0);
         self.command_buffer.update_data(0,&[IndirectArrayCommand::default()]);
-        parameters.sync_context.force_sync_with(BufferUpdateBarrier);
+        parameters.sync_context.force_sync(BufferUpdateBarrier);
 
         parameters.distance_field.bind_image(1, TextureAccess::Read);
 
@@ -84,14 +81,12 @@ impl CubeMarcher for FullCubeMarcher {
         // .set_buffer(parameters.bit_field.buffer(), 4)
         .set_buffer(parameters.collision_field.buffer(), 5);
         
-        let c = parameters.sync_context.dirty() | ShaderStorageBarrier | CommandBarrier;
+        parameters.sync_context.dirty(ShaderStorageBarrier | CommandBarrier);
         dispatch_compute_for(parameters.num_of_cubes, WORK_GROUP);
-
-        c.apply();
     }
     
     fn draw(&mut self, params: &mut MarchParameters) {
-        params.sync_context.sync_with(ShaderStorageBarrier | CommandBarrier);
+        params.sync_context.sync(ShaderStorageBarrier | CommandBarrier);
 
         params.model_vertex_buffer.bind();
 
